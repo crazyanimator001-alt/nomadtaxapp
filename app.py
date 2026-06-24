@@ -462,25 +462,25 @@ if uploaded_file and model:
             total_deductible_raw = sum(r.get("amount", 0) for r in categorized if r.get("deductible") and r.get("amount", 0) < 0)
             net_income = total_income + total_expenses
 
-                        st.divider()
-            st.subheader("📊 Summary")
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("💰 Total Income", f"{home_currency} {total_income:,.2f}")
-            c2.metric("💸 Total Expenses", f"{home_currency} {abs(total_expenses):,.2f}")
-            c3.metric("📈 Net Income", f"{home_currency} {net_income:,.2f}")
-            c4.metric("🧾 Flagged Deductible", f"{home_currency} {abs(total_deductible_raw):,.2f}")
-
-            st.subheader("🏷️ Expense Breakdown")
-            expense_cats = {}
-            for r in categorized:
-                if r.get("type") == "Expense":
-                    expense_cats[r.get("category", "Other")] = expense_cats.get(r.get("category", "Other"), 0) + abs(r.get("amount", 0))
-            if expense_cats:
-                cat_df = pd.DataFrame(sorted(expense_cats.items(), key=lambda x: x[1], reverse=True), columns=["Category", f"Amount ({home_currency})"])
-                cat_df[f"Amount ({home_currency})"] = cat_df[f"Amount ({home_currency})"].map("{:,.2f}".format)
-                st.dataframe(cat_df, use_container_width=True, hide_index=True)
-
-            st.subheader("📋 Categorized Transactions")
+        st.divider()
+    st.subheader("📊 Summary")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("💰 Total Income", f"{home_currency} {total_income:,.2f}")
+    c2.metric("💸 Total Expenses", f"{home_currency} {abs(total_expenses):,.2f}")
+    c3.metric("📈 Net Income", f"{home_currency} {net_income:,.2f}")
+    c4.metric("🧾 Flagged Deductible", f"{home_currency} {abs(total_deductible_raw):,.2f}")
+    
+    st.subheader("🏷️ Expense Breakdown")
+    expense_cats = {}
+    for r in categorized:
+    if r.get("type") == "Expense":
+    expense_cats[r.get("category", "Other")] = expense_cats.get(r.get("category", "Other"), 0) + abs(r.get("amount", 0))
+    if expense_cats:
+    cat_df = pd.DataFrame(sorted(expense_cats.items(), key=lambda x: x[1], reverse=True), columns=["Category", f"Amount ({home_currency})"])
+    cat_df[f"Amount ({home_currency})"] = cat_df[f"Amount ({home_currency})"].map("{:,.2f}".format)
+    st.dataframe(cat_df, use_container_width=True, hide_index=True)
+    
+    st.subheader("📋 Categorized Transactions")
 
             # ── Missing Deductions Scanner ─────────────────
             st.subheader("🔍 Missing Deductions Scanner")
