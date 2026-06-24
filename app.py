@@ -164,7 +164,8 @@ def find_column(cols, keywords):
             if kw in col.lower():
                 return col
     return None
-    # ── FX Conversion & Tax Profile ──────────────────────────────
+
+# ── FX Conversion & Tax Profile ──────────────────────────────
 def get_exchange_rate(from_currency, to_currency):
     if from_currency == to_currency:
         return 1.0
