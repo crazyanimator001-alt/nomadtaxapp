@@ -6,301 +6,616 @@ import streamlit as st
 import google.generativeai as genai
 from dotenv import load_dotenv
 from fpdf import FPDF
+from datetime import datetime
 
 load_dotenv()
 
-# ── Page config ──────────────────────────────────────────────
+# ── Page config ───────────────────────────────────────────────
 st.set_page_config(
-    page_title="NomadTax Copilot",
-    page_icon="💼",
-    layout="centered"
+    page_title="NomadTax Copilot — Tax Reports for Freelancers",
+    page_icon="🌍",
+    layout="wide",
+    initial_sidebar_state="collapsed"
 )
 
-# ── Minimal CSS ──────────────────────────────────────────────
+# ── CSS ───────────────────────────────────────────────────────
 st.markdown("""
 <style>
-    .disclaimer {
-        background: #fefce8;
-        border: 1px solid #fde68a;
-        border-radius: 8px;
-        padding: 12px 16px;
-        font-size: 0.85rem;
-        color: #78350f;
+    #MainMenu {visibility: hidden;}
+    footer     {visibility: hidden;}
+    header     {visibility: hidden;}
+
+    .hero-title { font-size: 2.2rem; font-weight: 700; margin-bottom: 0; }
+    .hero-sub   { font-size: 1.1rem; color: #64748b; margin-top: 4px; }
+
+    .pill {
+        display: inline-block;
+        background: #f1f5f9;
+        border-radius: 999px;
+        padding: 4px 14px;
+        font-size: 0.82rem;
+        color: #475569;
+        margin: 3px 3px 3px 0;
     }
+    .privacy-note {
+        background: #f0fdf4;
+        border: 1px solid #bbf7d0;
+        border-radius: 8px;
+        padding: 10px 16px;
+        font-size: 0.83rem;
+        color: #166534;
+        margin-top: 10px;
+    }
+    .reasoning-box {
+        background: #f8fafc;
+        border-left: 3px solid #6366f1;
+        border-radius: 4px;
+        padding: 8px 12px;
+        font-size: 0.83rem;
+        color: #475569;
+        margin-top: 6px;
+    }
+    .disclaimer {
+        background: #fafafa;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 10px 16px;
+        font-size: 0.78rem;
+        color: #94a3b8;
+        margin-top: 20px;
+    }
+    .stProgress > div > div { background: #6366f1; }
 </style>
 """, unsafe_allow_html=True)
 
-# ── Google Gemini setup ─────────────────────────────────────
+# ── System Prompt ─────────────────────────────────────────────
 SYSTEM_PROMPT = """
-You are an expert freelance bookkeeper. I will give you a list of financial transactions from payment processors (Stripe, PayPal, Wise) in JSON format.
+You are NomadTax Copilot, an expert financial categorization engine for digital nomads and freelancers.
+Your job is to analyze raw bank/PSP transaction data from Stripe, PayPal, and Wise CSVs, and return a structured JSON array.
 
-Your job is to categorize each transaction accurately.
+For EVERY transaction, include:
+1. "original_description" — Keep the exact original description from input
+2. "clean_description"   — Human-readable version (strip IDs, merchant codes, noise)
+3. "amount"              — Same number from input (positive = inflow, negative = outflow)
+4. "type"                — One of: "Income", "Expense", "Transfer", "Refund/Rebate"
+5. "category"            — One of: "SaaS/Software", "Travel/Accommodation", "Meals/Food",
+                           "Contractors/Freelancers", "Bank Fees", "Marketing/Advertising",
+                           "Office Supplies", "Professional Services", "Other"
+6. "deductible"          — MUST be true or false. NEVER null or omitted.
+7. "reasoning"           — 1-2 sentences explaining WHY you chose this category and deductible status.
 
-Rules:
-1. Determine if money is coming in (Income) or going out (Expense/Transfer).
-2. Mark pure transfers between accounts (e.g. Stripe payout to bank) as "Transfer".
-3. Categorize expenses logically: SaaS/Software, Advertising, Hardware, Contractors, Bank Fees, Other.
-4. Flag if an expense is likely tax-deductible for a standard freelance business.
-   - Laptop, software, domains, ads = Yes. Coffee, personal shopping = No. Ambiguous = null.
-5. NEVER give tax advice. Only categorize based on standard business practice.
+Deduction rules:
+- SaaS/Software for business → DEDUCTIBLE
+- Travel & accommodation while working remotely → DEDUCTIBLE
+- Meals during business travel → DEDUCTIBLE (note jurisdiction differences)
+- Coffee shops used as coworking spaces → DEDUCTIBLE
+- Personal items, gifts → NOT DEDUCTIBLE
+- Bank fees, FX fees, chargeback fees → DEDUCTIBLE
+- Contractor/freelancer payments → DEDUCTIBLE
+- Transfers between own accounts → NOT DEDUCTIBLE, type = Transfer
+- Refunds/rebates → NOT DEDUCTIBLE, type = Refund/Rebate
+- Client payments received → Income, NOT an expense
 
-Respond ONLY with a valid JSON array. No markdown. No explanation. No ```json blocks. Raw JSON array only.
-
-Each object must have exactly:
-{
-  "original_description": "string",
-  "amount": number (positive = inflow, negative = outflow),
-  "type": "Income | Expense | Transfer | Skip",
-  "category": "string",
-  "is_likely_deductible": true | false | null
-}
+NEVER give tax advice. Only categorize based on standard business practice.
+Return ONLY valid JSON array. No markdown. No explanation. No ```json blocks. Raw JSON only.
 """
 
-def get_google_client():
-    api_key = os.environ.get("GOOGLE_API_KEY") or st.secrets.get("GOOGLE_API_KEY", "")
+# ── Gemini client ─────────────────────────────────────────────
+def get_model():
+    api_key = os.environ.get("GOOGLE_API_KEY", "")
+    try:
+        api_key = api_key or st.secrets.get("GOOGLE_API_KEY", "")
+    except Exception:
+        pass
     if not api_key:
         return None
     genai.configure(api_key=api_key)
-    return genai.GenerativeModel('gemini-2.5-flash')
+    return genai.GenerativeModel("gemini-2.5-flash")
+
+def safe_deductible(val):
+    """Hard-enforce boolean — never let null slip through."""
+    return val is True
 
 def categorize_transactions(model, transactions: list) -> list:
     batch_size = 20
-    results = []
+    results    = []
+    total_batches = (len(transactions) + batch_size - 1) // batch_size
+
+    progress_bar  = st.progress(0, text="Starting analysis…")
+    status_text   = st.empty()
 
     for i in range(0, len(transactions), batch_size):
-        batch = transactions[i:i + batch_size]
-        try:
-            response = model.generate_content(
-                contents=[SYSTEM_PROMPT, json.dumps(batch)]
-            )
-            text = response.text.strip()
-            # Strip any accidental markdown fences just in case
-            if text.startswith("```"):
-                text = text.split("\n", 1)[1].rsplit("```", 1)[0]
-            parsed = json.loads(text)
-            results.extend(parsed)
-            time.sleep(13)
-        except Exception as e:
-            st.warning(f"Batch {i//batch_size + 1} failed: {e}")
+        batch     = transactions[i:i + batch_size]
+        batch_num = i // batch_size + 1
+        batch_pct = batch_num / total_batches
 
+        status_text.caption(f"🔍 Analyzing batch {batch_num} of {total_batches} ({len(batch)} transactions)…")
+        progress_bar.progress(batch_pct, text=f"Processing {batch_num}/{total_batches} batches…")
+
+        # ── Retry logic: 3 attempts per batch ────────────────
+        for attempt in range(3):
+            try:
+                response = model.generate_content(
+                    contents=[SYSTEM_PROMPT, json.dumps(batch)]
+                )
+                text = response.text.strip()
+                if text.startswith("```"):
+                    text = text.split("\n", 1)[1].rsplit("```", 1)[0]
+                parsed = json.loads(text)
+
+                for row in parsed:
+                    row["deductible"] = safe_deductible(row.get("deductible"))
+
+                results.extend(parsed)
+                break
+
+            except Exception as e:
+                if attempt < 2:
+                    wait = 15 * (attempt + 1)
+                    status_text.caption(f"⚠️ Batch {batch_num} attempt {attempt+1} failed. Retrying in {wait}s… ({e})")
+                    progress_bar.progress(batch_pct, text=f"Retry {attempt+1}/2 for batch {batch_num}…")
+                    time.sleep(wait)
+                else:
+                    st.warning(f"Batch {batch_num} failed after 3 attempts: {e}")
+
+        # Rate-limit pause — only between batches, not after last
+        if batch_num < total_batches:
+            for countdown in range(5, 0, -1):
+                status_text.caption(f"⏳ Pausing {countdown}s before next batch to respect API limits…")
+                progress_bar.progress(batch_pct, text=f"Waiting {countdown}s… ({batch_num}/{total_batches} done)")
+                time.sleep(1)
+
+    progress_bar.progress(1.0, text="Done!")
+    time.sleep(0.4)
+    progress_bar.empty()
+    status_text.empty()
     return results
 
-def find_column(df_cols, keywords):
-    for col in df_cols:
+def find_column(cols, keywords):
+    for col in cols:
         for kw in keywords:
             if kw in col.lower():
                 return col
     return None
 
-# ── PDF Generator ──────────────────────────────────────────
+# ── PDF Generator ─────────────────────────────────────────────
 class TaxPDF(FPDF):
     def header(self):
-        self.set_font('Helvetica', 'B', 16)
-        self.cell(0, 10, 'NomadTax Copilot - Accountant Summary', new_x="LMARGIN", new_y="NEXT", align='C')
-        self.ln(5)
+        self.set_font("Helvetica", "B", 16)
+        self.set_text_color(30, 41, 59)
+        self.cell(0, 10, "NomadTax Copilot — Accountant Report",
+                  new_x="LMARGIN", new_y="NEXT", align="C")
+        self.set_font("Helvetica", "", 9)
+        self.set_text_color(100, 116, 139)
+        self.cell(0, 5, f"Generated: {datetime.now().strftime('%B %d, %Y')}",
+                  new_x="LMARGIN", new_y="NEXT", align="C")
+        self.ln(2)
+        self.set_draw_color(226, 232, 240)
+        self.line(10, self.get_y(), 200, self.get_y())
+        self.ln(4)
 
     def footer(self):
-        self.set_y(-20)
-        self.set_font('Helvetica', 'I', 8)
-        self.set_text_color(128, 128, 128)
-        self.multi_cell(0, 4, "DISCLAIMER: This report is for organizational purposes only and does not constitute tax advice. Please consult a qualified tax professional.", align='C')
+        self.set_y(-12)
+        self.set_font("Helvetica", "I", 7)
+        self.set_text_color(148, 163, 184)
+        self.cell(0, 5, f"Page {self.page_no()}/{{nb}} · NomadTax Copilot · For organizational purposes only",
+                  align="C")
 
-def generate_pdf(categorized_data, total_income, total_expenses, total_deductible, net_income):
-    pdf = TaxPDF()
+def generate_pdf(categorized, total_income, total_expenses,
+                 total_deductible, net_income, notes, overrides, name=""):
+    pdf = TaxPDF(orientation="L", unit="mm", format="A4")
+    pdf.alias_nb_pages()
     pdf.add_page()
-    pdf.set_auto_page_break(auto=True, margin=25)
-    
-    pdf.set_font('Helvetica', 'B', 12)
-    pdf.cell(0, 10, 'Financial Summary', new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font('Helvetica', '', 11)
-    
-    pdf.cell(95, 8, f'Total Gross Income: ${total_income:,.2f}', new_x="RIGHT", new_y="TOP")
-    pdf.cell(95, 8, f'Total Expenses: ${abs(total_expenses):,.2f}', new_x="LMARGIN", new_y="NEXT")
-    pdf.cell(95, 8, f'Net Income: ${net_income:,.2f}', new_x="RIGHT", new_y="TOP")
-    pdf.cell(95, 8, f'Flagged Deductible: ${abs(total_deductible):,.2f}', new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(5)
+    pdf.set_auto_page_break(auto=True, margin=20)
+    pdf.set_margins(12, 15, 12)
 
-    pdf.set_font('Helvetica', 'B', 12)
-    pdf.cell(0, 10, 'Expense Breakdown by Category', new_x="LMARGIN", new_y="NEXT")
-    
+    if name:
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.set_text_color(30, 41, 59)
+        pdf.cell(0, 6, f"Prepared for: {name}", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(2)
+
+    # ── Financial Summary ─────────────────────────────────────
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.set_text_color(30, 41, 59)
+    pdf.cell(0, 8, "Financial Summary", new_x="LMARGIN", new_y="NEXT")
+
+    summary_rows = [
+        ("Total Gross Income",            f"${total_income:,.2f}",        (22, 163, 74)),
+        ("Total Expenses",                f"${abs(total_expenses):,.2f}", (220, 38, 38)),
+        ("Net Income",                    f"${net_income:,.2f}",           (37, 99, 235)),
+        ("Potential Deductions (edited)", f"${abs(total_deductible):,.2f}",(99, 102, 241)),
+    ]
+    for label, value, rgb in summary_rows:
+        pdf.set_font("Helvetica", "", 10)
+        pdf.set_text_color(71, 85, 105)
+        pdf.cell(80, 7, label)
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.set_text_color(*rgb)
+        pdf.cell(40, 7, value, new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(4)
+
+    # ── Expense category breakdown ────────────────────────────
     expense_cats = {}
-    for r in categorized_data:
-        if r["type"] == "Expense":
+    for r in categorized:
+        if r.get("type") == "Expense":
             cat = r.get("category", "Other")
-            expense_cats[cat] = expense_cats.get(cat, 0) + abs(r["amount"])
-            
-    pdf.set_font('Helvetica', 'B', 10)
-    pdf.set_fill_color(240, 240, 240)
-    pdf.cell(120, 7, 'Category', border=1, fill=True)
-    pdf.cell(60, 7, 'Amount ($)', border=1, align='R', fill=True, new_x="LMARGIN", new_y="NEXT")
-    
-    pdf.set_font('Helvetica', '', 10)
-    for cat, amount in sorted(expense_cats.items(), key=lambda x: x[1], reverse=True):
-        pdf.cell(120, 6, cat, border=1)
-        pdf.cell(60, 6, f'${amount:,.2f}', border=1, align='R', new_x="LMARGIN", new_y="NEXT")
-        
-    pdf.ln(10)
-    
-    pdf.set_font('Helvetica', 'B', 12)
-    pdf.cell(0, 10, 'Full Transaction Log', new_x="LMARGIN", new_y="NEXT")
-    
-    pdf.set_font('Helvetica', 'B', 8)
-    pdf.set_fill_color(240, 240, 240)
-    pdf.cell(70, 6, 'Description', border=1, fill=True)
-    pdf.cell(25, 6, 'Amount', border=1, align='R', fill=True)
-    pdf.cell(25, 6, 'Type', border=1, align='C', fill=True)
-    pdf.cell(30, 6, 'Category', border=1, align='C', fill=True)
-    pdf.cell(20, 6, 'Deductible', border=1, align='C', fill=True, new_x="LMARGIN", new_y="NEXT")
-    
-    pdf.set_font('Helvetica', '', 8)
-    for r in categorized_data:
-        desc = r["original_description"][:35] + "..." if len(r["original_description"]) > 35 else r["original_description"]
-        ded = "Yes" if r.get("is_likely_deductible") == True else "No" if r.get("is_likely_deductible") == False else "-"
-        
-        pdf.cell(70, 5, desc, border=1)
-        pdf.cell(25, 5, f'${r["amount"]:,.2f}', border=1, align='R')
-        pdf.cell(25, 5, r["type"], border=1, align='C')
-        pdf.cell(30, 5, r.get("category", ""), border=1, align='C')
-        pdf.cell(20, 5, ded, border=1, align='C', new_x="LMARGIN", new_y="NEXT")
+            expense_cats[cat] = expense_cats.get(cat, 0) + abs(r.get("amount", 0))
 
-    pdf_bytes = pdf.output()
-    return bytes(pdf_bytes)
+    if expense_cats:
+        pdf.set_font("Helvetica", "B", 12)
+        pdf.set_text_color(30, 41, 59)
+        pdf.cell(0, 8, "Expense Breakdown by Category", new_x="LMARGIN", new_y="NEXT")
 
-# ─────────────────────────────────────────────────────────────
+        pdf.set_font("Helvetica", "B", 8)
+        pdf.set_fill_color(241, 245, 249)
+        pdf.set_text_color(30, 41, 59)
+        pdf.cell(100, 6, "Category",     border=1, fill=True)
+        pdf.cell(40,  6, "Amount (USD)", border=1, fill=True, align="R",
+                 new_x="LMARGIN", new_y="NEXT")
+
+        pdf.set_font("Helvetica", "", 8)
+        for cat, amt in sorted(expense_cats.items(), key=lambda x: x[1], reverse=True):
+            pdf.set_text_color(71, 85, 105)
+            pdf.cell(100, 5, f"  {cat}", border=1)
+            pdf.set_text_color(30, 41, 59)
+            pdf.cell(40,  5, f"${amt:,.2f}", border=1, align="R",
+                     new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(5)
+
+    # ── Itemized transaction ledger ───────────────────────────
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.set_text_color(30, 41, 59)
+    pdf.cell(0, 8, "Itemized Transaction Ledger", new_x="LMARGIN", new_y="NEXT")
+
+    COL = {"desc": 70, "amount": 22, "cat": 38, "ded": 14, "reasoning": 70, "notes": 50}
+
+    pdf.set_font("Helvetica", "B", 7)
+    pdf.set_fill_color(30, 41, 59)
+    pdf.set_text_color(255, 255, 255)
+    for label, w in [("Description", COL["desc"]), ("Amount", COL["amount"]),
+                     ("Category", COL["cat"]),      ("Ded.", COL["ded"]),
+                     ("AI Reasoning", COL["reasoning"]), ("Accountant Notes", COL["notes"])]:
+        pdf.cell(w, 6, label, border=1, fill=True, align="C")
+    pdf.ln()
+
+    pdf.set_font("Helvetica", "", 6.5)
+    row_index = 0
+    for i, r in enumerate(categorized):
+        if r.get("type") not in ("Expense", "Income"):
+            continue
+
+        desc      = r.get("clean_description") or r.get("original_description", "")
+        reasoning = r.get("reasoning", "")
+        note      = notes.get(i, "")
+        ded       = "✓ Yes" if overrides.get(i, r.get("deductible", False)) else "✗ No"
+        amount    = r.get("amount", 0)
+        amount_str = f"${amount:,.2f}" if amount >= 0 else f"(${abs(amount):,.2f})"
+
+        line_h = 3.5
+        def count_lines(text, width, font_size=6.5):
+            if not text:
+                return 1
+            chars_per_line = max(1, int(width / (font_size * 0.45)))
+            words = text.split()
+            line, count = "", 1
+            for w in words:
+                if len(line) + len(w) + 1 <= chars_per_line:
+                    line += (" " if line else "") + w
+                else:
+                    count += 1
+                    line = w
+            return count
+
+        lines_desc = count_lines(desc, COL["desc"])
+        lines_rsn  = count_lines(reasoning, COL["reasoning"])
+        lines_note = count_lines(note, COL["notes"])
+        row_h = max(lines_desc, lines_rsn, lines_note, 1) * line_h + 2
+
+        is_zebra = row_index % 2 == 0
+        fill = is_zebra
+        x0, y0 = pdf.get_x(), pdf.get_y()
+
+        if y0 + row_h > pdf.page_break_trigger:
+            pdf.add_page()
+            x0, y0 = pdf.get_x(), pdf.get_y()
+
+        pdf.set_text_color(30, 41, 59)
+
+        def draw_cell(x, y, w, text, align="L"):
+            pdf.set_xy(x, y)
+            if is_zebra:
+                pdf.set_fill_color(248, 250, 252)
+            else:
+                pdf.set_fill_color(255, 255, 255)
+            pdf.multi_cell(w, line_h, str(text), border=1, align=align,
+                           fill=True, max_line_height=line_h)
+
+        draw_cell(x0,                                              y0, COL["desc"],      desc)
+        draw_cell(x0 + COL["desc"],                               y0, COL["amount"],     amount_str, "R")
+        draw_cell(x0 + COL["desc"] + COL["amount"],               y0, COL["cat"],        r.get("category", ""))
+
+        # Deductible — color coded
+        pdf.set_xy(x0 + COL["desc"] + COL["amount"] + COL["cat"], y0)
+        if "Yes" in ded:
+            pdf.set_text_color(22, 163, 74)
+        else:
+            pdf.set_text_color(220, 38, 38)
+        if is_zebra:
+            pdf.set_fill_color(248, 250, 252)
+        else:
+            pdf.set_fill_color(255, 255, 255)
+        pdf.multi_cell(COL["ded"], line_h, ded, border=1, align="C",
+                       fill=True, max_line_height=line_h)
+        pdf.set_text_color(30, 41, 59)
+
+        draw_cell(x0 + COL["desc"] + COL["amount"] + COL["cat"] + COL["ded"],
+                  y0, COL["reasoning"], reasoning)
+        draw_cell(x0 + COL["desc"] + COL["amount"] + COL["cat"] + COL["ded"] + COL["reasoning"],
+                  y0, COL["notes"], note)
+
+        pdf.set_xy(x0, y0 + row_h)
+        row_index += 1
+
+    # ── Disclaimer — once at the end ──────────────────────────
+    pdf.ln(6)
+    pdf.set_draw_color(226, 232, 240)
+    pdf.line(12, pdf.get_y(), 265, pdf.get_y())
+    pdf.ln(3)
+    pdf.set_font("Helvetica", "I", 6.5)
+    pdf.set_text_color(148, 163, 184)
+    pdf.multi_cell(0, 3.5,
+        "DISCLAIMER: This report is for organizational purposes only and does not constitute "
+        "tax, legal, or financial advice. Your data was processed in real time and is never "
+        "stored or shared. Always consult a qualified tax professional before filing.")
+
+    return bytes(pdf.output())
+
+
+# ═════════════════════════════════════════════════════════════
 # UI
-# ─────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════
 
-st.title("NomadTax Copilot")
-st.caption("Upload your Stripe, PayPal, or Wise CSV  —  get a clean categorized report AND an Accountant-Ready PDF.")
-
+st.markdown('<p class="hero-title">🌍 NomadTax Copilot</p>', unsafe_allow_html=True)
+st.markdown(
+    '<p class="hero-sub">Turn your messy Stripe, PayPal, or Wise CSV into a clean '
+    'accountant-ready tax report — in under 60 seconds.</p>',
+    unsafe_allow_html=True
+)
 st.markdown("""
-<div class="disclaimer">
-WARNING: This tool organizes your transaction data only. 
-It does not provide tax advice. Always consult a qualified tax professional before filing.
+<div style="margin:10px 0 4px;">
+  <span class="pill">✅ AI-categorized transactions</span>
+  <span class="pill">✅ Deductible expenses flagged</span>
+  <span class="pill">✅ Reasoning for every decision</span>
+  <span class="pill">✅ Editable notes before PDF export</span>
+  <span class="pill">✅ Accountant-ready PDF</span>
+</div>
+<div class="privacy-note">
+  🔒 <strong>Your data never leaves this session.</strong>
+  Transactions are processed in real time and are never stored, logged, or shared.
 </div>
 """, unsafe_allow_html=True)
 
 st.divider()
 
-model = get_google_client()
+# ── API Key ───────────────────────────────────────────────────
+model = get_model()
 if not model:
-    api_key_input = st.text_input("Enter your Google AI API Key", type="password", help="Get your FREE key at aistudio.google.com")
-    if api_key_input:
-        os.environ["GOOGLE_API_KEY"] = api_key_input
-        model = get_google_client()
+    with st.expander("🔑 Enter your Google AI API Key", expanded=True):
+        st.caption("Get a free key at [aistudio.google.com](https://aistudio.google.com). "
+                   "Processing 100 transactions costs ~$0.01 on the paid tier.")
+        api_key_input = st.text_input(
+            "API Key", type="password",
+            label_visibility="collapsed",
+            placeholder="AIza..."
+        )
+        if api_key_input:
+            os.environ["GOOGLE_API_KEY"] = api_key_input
+            model = get_model()
+            if model:
+                st.success("API key accepted ✓")
 
-uploaded_file = st.file_uploader("Upload your transaction CSV", type=["csv"], help="Works with Stripe, PayPal, Wise, or any CSV with description + amount columns.")
+# ── Optional name ─────────────────────────────────────────────
+freelancer_name = st.text_input(
+    "Your name (optional — appears on the PDF)",
+    placeholder="e.g. Rahul Sharma"
+)
 
+# ── File upload ───────────────────────────────────────────────
+uploaded_file = st.file_uploader(
+    "📂 Upload your transaction CSV",
+    type=["csv"],
+    help="Works with Stripe, PayPal, Wise, or any CSV with description + amount columns."
+)
+
+with st.expander("What should the CSV look like?"):
+    st.dataframe(pd.DataFrame({
+        "Description": ["Client payment - Website build", "Stripe processing fee",
+                        "AWS subscription", "Transfer to bank account"],
+        "Amount":      [2500.00, -75.00, -29.99, -2425.00]
+    }), use_container_width=True, hide_index=True)
+    st.caption("Column names are auto-detected — they don't need to match exactly.")
+
+# ── Process ───────────────────────────────────────────────────
 if uploaded_file and model:
     try:
         df = pd.read_csv(uploaded_file)
         df.columns = df.columns.str.strip().str.lower()
 
-        desc_col = find_column(df.columns, ["description", "statement", "memo", "name", "narration", "details"])
-        amount_col = find_column(df.columns, ["amount", "net", "gross", "value"])
+        desc_col   = find_column(df.columns,
+            ["description", "statement", "memo", "name", "narration", "details", "merchant"])
+        amount_col = find_column(df.columns,
+            ["amount", "net", "gross", "value", "debit", "credit"])
 
         if not desc_col or not amount_col:
-            st.error(f"Could not auto-detect columns. Found: {list(df.columns)}")
-            st.info("Rename your columns to include 'description' and 'amount' and re-upload.")
+            st.error(f"Could not detect columns. Found: {list(df.columns)}")
+            st.info("Rename columns to include 'description' and 'amount'.")
             st.stop()
 
-        st.success(f"Found {len(df)} transactions. Using columns: **{desc_col}** and **{amount_col}**")
+        st.success(f"✓ {len(df)} transactions detected · columns: **{desc_col}** & **{amount_col}**")
 
-        with st.expander("Preview raw data (first 5 rows)"):
+        with st.expander("Preview (first 5 rows)"):
             st.dataframe(df[[desc_col, amount_col]].head(), use_container_width=True)
 
-        if st.button("Categorize with AI", type="primary", use_container_width=True):
+        if st.button("🔍 Analyze & Categorize", type="primary", use_container_width=True):
+
             transactions = df[[desc_col, amount_col]].rename(
                 columns={desc_col: "description", amount_col: "amount"}
             ).to_dict(orient="records")
 
-            with st.spinner("Gemini AI is categorizing your transactions..."):
-                categorized = categorize_transactions(model, transactions)
+            categorized = categorize_transactions(model, transactions)
 
             if not categorized:
-                st.error("Something went wrong. No results returned.")
+                st.error("No results returned. Check your API key and try again.")
                 st.stop()
 
-            total_income    = sum(r["amount"] for r in categorized if r["type"] == "Income" and r["amount"] > 0)
-            total_expenses  = sum(r["amount"] for r in categorized if r["type"] == "Expense" and r["amount"] < 0)
-            total_deductible= sum(r["amount"] for r in categorized if r.get("is_likely_deductible") and r["amount"] < 0)
-            net_income      = total_income + total_expenses
-
-            with st.spinner("Generating Accountant PDF..."):
-                pdf_bytes = generate_pdf(categorized, total_income, total_expenses, total_deductible, net_income)
+            # ── Summary metrics ───────────────────────────────
+            total_income   = sum(r.get("amount", 0) for r in categorized
+                                 if r.get("type") == "Income" and r.get("amount", 0) > 0)
+            total_expenses = sum(r.get("amount", 0) for r in categorized
+                                 if r.get("type") == "Expense" and r.get("amount", 0) < 0)
+            total_deductible_raw = sum(r.get("amount", 0) for r in categorized
+                                       if r.get("deductible") and r.get("amount", 0) < 0)
+            net_income = total_income + total_expenses
 
             st.divider()
-            st.subheader("Dashboard Summary")
+            st.subheader("📊 Summary")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("💰 Total Income",      f"${total_income:,.2f}")
+            c2.metric("💸 Total Expenses",    f"${abs(total_expenses):,.2f}")
+            c3.metric("📈 Net Income",         f"${net_income:,.2f}")
+            c4.metric("🧾 Flagged Deductible", f"${abs(total_deductible_raw):,.2f}")
 
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                st.metric("Total Income", f"${total_income:,.2f}")
-            with c2:
-                st.metric("Total Expenses", f"${abs(total_expenses):,.2f}")
-            with c3:
-                st.metric("Net Income", f"${net_income:,.2f}", delta=f"${total_deductible:,.2f} flagged deductible")
-
-            st.subheader("Expense Breakdown")
+            # ── Expense category breakdown ─────────────────────
+            st.subheader("🏷️ Expense Breakdown")
             expense_cats = {}
             for r in categorized:
-                if r["type"] == "Expense":
+                if r.get("type") == "Expense":
                     cat = r.get("category", "Other")
-                    expense_cats[cat] = expense_cats.get(cat, 0) + abs(r["amount"])
+                    expense_cats[cat] = expense_cats.get(cat, 0) + abs(r.get("amount", 0))
 
             if expense_cats:
-                expense_df = pd.DataFrame(
+                cat_df = pd.DataFrame(
                     sorted(expense_cats.items(), key=lambda x: x[1], reverse=True),
                     columns=["Category", "Amount ($)"]
                 )
-                expense_df["Amount ($)"] = expense_df["Amount ($)"].map("${:,.2f}".format)
-                st.dataframe(expense_df, use_container_width=True, hide_index=True)
-            else:
-                st.info("No expenses found.")
+                cat_df["Amount ($)"] = cat_df["Amount ($)"].map("${:,.2f}".format)
+                st.dataframe(cat_df, use_container_width=True, hide_index=True)
 
-            with st.expander("View All Categorized Transactions"):
-                result_df = pd.DataFrame(categorized)
-                result_df["amount"] = result_df["amount"].map("${:,.2f}".format)
-                result_df["is_likely_deductible"] = result_df["is_likely_deductible"].map(
-                    {True: "Yes", False: "No", None: "-"}
-                )
-                result_df.columns = [c.replace("_", " ").title() for c in result_df.columns]
-                st.dataframe(result_df, use_container_width=True, hide_index=True)
+            # ── Transaction cards with reasoning ──────────────
+            st.subheader("📋 Categorized Transactions")
+            st.caption("Every AI decision is explained. Expand any row to see the reasoning.")
 
+            for idx, r in enumerate(categorized):
+                t = r.get("type", "")
+                clean = r.get("clean_description") or r.get("original_description", "")
+                amount = r.get("amount", 0)
+                amount_str = f"${amount:,.2f}" if amount >= 0 else f"-${abs(amount):,.2f}"
+
+                if t == "Expense":
+                    icon = "✅" if r.get("deductible") else "❌"
+                    label = f"{icon} **{clean}** — {amount_str} · {r.get('category', '')}"
+                    with st.expander(label):
+                        col1, col2, col3 = st.columns(3)
+                        col1.metric("Category",   r.get("category", "Other"))
+                        col2.metric("Deductible", "Yes ✅" if r.get("deductible") else "No ❌")
+                        col3.metric("Type",       t)
+                        st.markdown(
+                            f'<div class="reasoning-box">🤖 <strong>AI Reasoning:</strong> '
+                            f'{r.get("reasoning", "No reasoning provided.")}</div>',
+                            unsafe_allow_html=True
+                        )
+                elif t == "Income":
+                    with st.expander(f"💰 **{clean}** — {amount_str}"):
+                        col1, col2 = st.columns(2)
+                        col1.metric("Type",     t)
+                        col2.metric("Category", r.get("category", ""))
+                elif t in ("Transfer", "Refund/Rebate"):
+                    with st.expander(f"🔄 **{clean}** — {amount_str} · {t}"):
+                        st.caption(r.get("reasoning", ""))
+
+            # ── Editable notes + override ──────────────────────
             st.divider()
-            
+            st.subheader("📝 Review & Add Notes for Your Accountant")
+            st.caption("Override any deductible decision and add a note — both print directly to the PDF.")
+
+            notes     = {}
+            overrides = {}
+
+            for idx, r in enumerate(categorized):
+                if r.get("type") == "Expense":
+                    col1, col2, col3 = st.columns([4, 1, 3])
+                    clean = r.get("clean_description") or r.get("original_description", "")
+                    col1.write(f"**{clean}** — ${abs(r.get('amount', 0)):.2f}")
+                    overrides[idx] = col2.checkbox(
+                        "Ded.", value=r.get("deductible", False), key=f"ov_{idx}"
+                    )
+                    notes[idx] = col3.text_input(
+                        "Note", value="", key=f"nt_{idx}",
+                        label_visibility="collapsed",
+                        placeholder="Add accountant note…"
+                    )
+
+            # Recalculate with user overrides
+            total_deductible_final = sum(
+                abs(r.get("amount", 0)) for i, r in enumerate(categorized)
+                if r.get("type") == "Expense"
+                and overrides.get(i, r.get("deductible", False))
+            )
+
+            st.metric(
+                "🧾 Potential Deductions (after your edits)",
+                f"${total_deductible_final:,.2f}",
+                delta=f"{'+' if total_deductible_final >= abs(total_deductible_raw) else ''}"
+                      f"${total_deductible_final - abs(total_deductible_raw):,.2f} vs AI estimate"
+            )
+
+            # ── Downloads ──────────────────────────────────────
+            st.divider()
+            st.subheader("⬇️ Download Your Report")
+
             col1, col2 = st.columns(2)
+
             with col1:
-                st.download_button(
-                    label="DOWNLOAD ACCOUNTANT PDF",
-                    data=pdf_bytes,
-                    file_name="NomadTax_Accountant_Report.pdf",
-                    mime="application/pdf",
-                    use_container_width=True,
-                    type="primary"
-                )
-            with col2:
                 csv_out = pd.DataFrame(categorized).to_csv(index=False)
                 st.download_button(
-                    label="Download Raw CSV",
+                    "📊 Download Raw CSV",
                     data=csv_out,
                     file_name="nomadtax_report.csv",
                     mime="text/csv",
                     use_container_width=True
                 )
 
+            with col2:
+                with st.spinner("Building your PDF…"):
+                    pdf_bytes = generate_pdf(
+                        categorized,
+                        total_income, total_expenses,
+                        total_deductible_final, net_income,
+                        notes, overrides, freelancer_name
+                    )
+                st.download_button(
+                    "📄 Download Accountant-Ready PDF",
+                    data=pdf_bytes,
+                    file_name="NomadTax_Accountant_Report.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                    type="primary"
+                )
+
+            st.success("✓ Report ready. Hand the PDF directly to your accountant — no extra prep needed.")
+
     except Exception as e:
-        st.error(f"Error reading file: {e}")
+        st.error(f"Error: {e}")
 
 elif uploaded_file and not model:
-    st.warning("Please enter your Google API key above to process the file.")
+    st.warning("Please enter your Google AI API key above to process the file.")
 
-elif not uploaded_file:
-    st.info("Upload a CSV to get started. Works with any file that has a description column and an amount column.")
-
-    with st.expander("What does a valid CSV look like?"):
-        sample = pd.DataFrame({
-            "Description": ["Client payment - Website", "Stripe fee", "AWS subscription", "Transfer to bank"],
-            "Amount": [1500.00, -45.00, -29.99, -1455.00]
-        })
-        st.dataframe(sample, use_container_width=True, hide_index=True)
-        st.caption("Column names don't have to match exactly — the app auto-detects them.")
+# ── Footer disclaimer ─────────────────────────────────────────
+st.markdown("""
+<div class="disclaimer">
+  This tool organizes transaction data for informational purposes only.
+  It does not constitute tax, legal, or financial advice.
+  Always consult a qualified tax professional before filing. · Free during beta.
+</div>
+""", unsafe_allow_html=True)
