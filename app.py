@@ -470,15 +470,17 @@ if uploaded_file and model:
             c3.metric("📈 Net Income", f"{home_currency} {net_income:,.2f}")
             c4.metric("🧾 Flagged Deductible", f"{home_currency} {abs(total_deductible_raw):,.2f}")
 
-            st.subheader("🏷️ Expense Breakdown")
+                       st.subheader("🏷️ Expense Breakdown")
             expense_cats = {}
             for r in categorized:
                 if r.get("type") == "Expense":
                     expense_cats[r.get("category", "Other")] = expense_cats.get(r.get("category", "Other"), 0) + abs(r.get("amount", 0))
-                        if expense_cats:
+            if expense_cats:
                 cat_df = pd.DataFrame(sorted(expense_cats.items(), key=lambda x: x[1], reverse=True), columns=["Category", f"Amount ({home_currency})"])
                 cat_df[f"Amount ({home_currency})"] = cat_df[f"Amount ({home_currency})"].map("{:,.2f}".format)
                 st.dataframe(cat_df, use_container_width=True, hide_index=True)
+
+            st.subheader("📋 Categorized Transactions")
 
             # ── Missing Deductions Scanner ─────────────────
             st.subheader("🔍 Missing Deductions Scanner")
