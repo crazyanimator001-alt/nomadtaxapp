@@ -462,7 +462,7 @@ if uploaded_file and model:
             total_deductible_raw = sum(r.get("amount", 0) for r in categorized if r.get("deductible") and r.get("amount", 0) < 0)
             net_income = total_income + total_expenses
 
-            st.divider()
+                        st.divider()
             st.subheader("📊 Summary")
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("💰 Total Income", f"{home_currency} {total_income:,.2f}")
@@ -470,7 +470,7 @@ if uploaded_file and model:
             c3.metric("📈 Net Income", f"{home_currency} {net_income:,.2f}")
             c4.metric("🧾 Flagged Deductible", f"{home_currency} {abs(total_deductible_raw):,.2f}")
 
-                       st.subheader("🏷️ Expense Breakdown")
+            st.subheader("🏷️ Expense Breakdown")
             expense_cats = {}
             for r in categorized:
                 if r.get("type") == "Expense":
