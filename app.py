@@ -475,10 +475,46 @@ if uploaded_file and model:
             for r in categorized:
                 if r.get("type") == "Expense":
                     expense_cats[r.get("category", "Other")] = expense_cats.get(r.get("category", "Other"), 0) + abs(r.get("amount", 0))
-            if expense_cats:
+                        if expense_cats:
                 cat_df = pd.DataFrame(sorted(expense_cats.items(), key=lambda x: x[1], reverse=True), columns=["Category", f"Amount ({home_currency})"])
                 cat_df[f"Amount ({home_currency})"] = cat_df[f"Amount ({home_currency})"].map("{:,.2f}".format)
                 st.dataframe(cat_df, use_container_width=True, hide_index=True)
+
+            # ── Missing Deductions Scanner ─────────────────
+            st.subheader("🔍 Missing Deductions Scanner")
+            existing_cats = set(expense_cats.keys())
+            missing_warnings = []
+
+            if "Meals/Food" not in existing_cats:
+                missing_warnings.append("Meals/Food (Coffee, lunches)")
+            if is_nomad and "Travel/Accommodation" not in existing_cats:
+                missing_warnings.append("Travel/Accommodation (Hotels, flights)")
+            if "Office Supplies" not in existing_cats:
+                missing_warnings.append("Office Supplies (Internet, desk)")
+
+            if missing_warnings:
+                st.warning(f"⚠️ **Wait!** We didn't see any expenses for: {', '.join(missing_warnings)}. Did you pay for these using a different card or bank?")
+                with st.expander("➕ Add a missing expense to your report"):
+                    add_col1, add_col2 = st.columns(2)
+                    manual_desc = add_col1.text_input("Description", placeholder="e.g., Monthly internet bill", key="manual_desc")
+                    manual_amt = add_col2.number_input(f"Amount ({home_currency})", min_value=0.0, format="%0.2f", key="manual_amt")
+                    manual_cat = st.selectbox("Category", ["Meals/Food", "Travel/Accommodation", "Office Supplies", "SaaS/Software", "Other"], key="manual_cat")
+                    if st.button("Add to Report", key="add_missing_btn"):
+                        new_expense = {
+                            "original_description": manual_desc,
+                            "clean_description": manual_desc,
+                            "amount": -manual_amt,
+                            "type": "Expense",
+                            "category": manual_cat,
+                            "deductible": True,
+                            "reasoning": "Manually added by user as a commonly missed business expense."
+                        }
+                        st.session_state.categorized_data.append(new_expense)
+                        st.session_state.saved_overrides[len(st.session_state.categorized_data) - 1] = True
+                        st.session_state.saved_notes[len(st.session_state.categorized_data) - 1] = "Manually added missing expense."
+                        st.rerun()
+            else:
+                st.success("✅ Looks like you covered all the major expense categories!")
 
             st.subheader("📋 Categorized Transactions")
             st.caption("Every AI decision is explained. Expand any row to see the reasoning.")
