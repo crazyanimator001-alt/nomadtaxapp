@@ -25,10 +25,8 @@ st.markdown("""
     #MainMenu {visibility: hidden;}
     footer     {visibility: hidden;}
     header     {visibility: hidden;}
-
     .hero-title { font-size: 2.2rem; font-weight: 700; margin-bottom: 0; }
     .hero-sub   { font-size: 1.1rem; color: #64748b; margin-top: 4px; }
-
     .pill {
         display: inline-block;
         background: #f1f5f9;
@@ -79,9 +77,7 @@ For EVERY transaction, include:
 2. "clean_description"   — Human-readable version (strip IDs, merchant codes, noise)
 3. "amount"              — Same number from input (positive = inflow, negative = outflow)
 4. "type"                — One of: "Income", "Expense", "Transfer", "Refund/Rebate"
-5. "category"            — One of: "SaaS/Software", "Travel/Accommodation", "Meals/Food",
-                           "Contractors/Freelancers", "Bank Fees", "Marketing/Advertising",
-                           "Office Supplies", "Professional Services", "Other"
+5. "category"            — One of: "SaaS/Software", "Travel/Accommodation", "Meals/Food", "Contractors/Freelancers", "Bank Fees", "Marketing/Advertising", "Office Supplies", "Professional Services", "Other"
 6. "deductible"          — MUST be true or false. NEVER null or omitted.
 7. "reasoning"           — 1-2 sentences explaining WHY you chose this category and deductible status.
 
@@ -120,7 +116,6 @@ def categorize_transactions(model, transactions: list) -> list:
     batch_size = 20
     results    = []
     total_batches = (len(transactions) + batch_size - 1) // batch_size
-
     progress_bar  = st.progress(0, text="Starting analysis…")
     status_text   = st.empty()
 
@@ -128,26 +123,20 @@ def categorize_transactions(model, transactions: list) -> list:
         batch     = transactions[i:i + batch_size]
         batch_num = i // batch_size + 1
         batch_pct = batch_num / total_batches
-
         status_text.caption(f"🔍 Analyzing batch {batch_num} of {total_batches} ({len(batch)} transactions)…")
         progress_bar.progress(batch_pct, text=f"Processing {batch_num}/{total_batches} batches…")
 
         for attempt in range(3):
             try:
-                response = model.generate_content(
-                    contents=[SYSTEM_PROMPT, json.dumps(batch)]
-                )
+                response = model.generate_content(contents=[SYSTEM_PROMPT, json.dumps(batch)])
                 text = response.text.strip()
                 if text.startswith("```"):
                     text = text.split("\n", 1)[1].rsplit("```", 1)[0]
                 parsed = json.loads(text)
-
                 for row in parsed:
                     row["deductible"] = safe_deductible(row.get("deductible"))
-
                 results.extend(parsed)
                 break
-
             except Exception as e:
                 if attempt < 2:
                     wait = 15 * (attempt + 1)
@@ -175,42 +164,30 @@ def find_column(cols, keywords):
             if kw in col.lower():
                 return col
     return None
-
-# ── FX Conversion & Tax Profile ──────────────────────────────
+    # ── FX Conversion & Tax Profile ──────────────────────────────
 def get_exchange_rate(from_currency, to_currency):
     if from_currency == to_currency:
         return 1.0
-      url = f"https://api.frankfurter.app/latest?from={from_currency}&to={to_currency}"
+    url = f"https://api.frankfurter.app/latest?from={from_currency}&to={to_currency}"
     try:
         req = urllib.request.Request(url)
         with urllib.request.urlopen(req, timeout=5) as response:
             data = json.loads(response.read().decode())
             return data["rates"][to_currency]
     except Exception:
-        return None 
+        return None
 
 def render_tax_profile():
     st.subheader("⚙️ Your Tax Profile")
     st.caption("Helps us convert currencies accurately and organize your report.")
-    
     col1, col2 = st.columns(2)
     with col1:
-        home_currency = st.selectbox(
-            "Primary Reporting Currency",
-            options=["USD", "EUR", "GBP", "INR", "AUD", "CAD", "SGD", "THB", "BRL", "MXN", "Other"],
-            index=0
-        )
+        home_currency = st.selectbox("Primary Reporting Currency", options=["USD", "EUR", "GBP", "INR", "AUD", "CAD", "SGD", "THB", "BRL", "MXN", "Other"], index=0)
         if home_currency == "Other":
             home_currency = st.text_input("Enter currency code (e.g., JPY)", value="JPY").upper()
-    
     with col2:
-        tax_country = st.selectbox(
-            "Tax Residence Country",
-            options=["United States", "United Kingdom", "Germany", "Australia", "Canada", "India", "Singapore", "Spain", "Portugal", "Other"],
-            index=0
-        )
+        tax_country = st.selectbox("Tax Residence Country", options=["United States", "United Kingdom", "Germany", "Australia", "Canada", "India", "Singapore", "Spain", "Portugal", "Other"], index=0)
         is_nomad = st.checkbox("I am claiming foreign income / digital nomad status")
-    
     return home_currency.strip().upper(), tax_country, is_nomad
 
 # ── PDF Generator ─────────────────────────────────────────────
@@ -218,12 +195,10 @@ class TaxPDF(FPDF):
     def header(self):
         self.set_font("Helvetica", "B", 16)
         self.set_text_color(30, 41, 59)
-        self.cell(0, 10, "NomadTax Copilot — Accountant Report",
-                  new_x="LMARGIN", new_y="NEXT", align="C")
+        self.cell(0, 10, "NomadTax Copilot — Accountant Report", new_x="LMARGIN", new_y="NEXT", align="C")
         self.set_font("Helvetica", "", 9)
         self.set_text_color(100, 116, 139)
-        self.cell(0, 5, f"Generated: {datetime.now().strftime('%B %d, %Y')}",
-                  new_x="LMARGIN", new_y="NEXT", align="C")
+        self.cell(0, 5, f"Generated: {datetime.now().strftime('%B %d, %Y')}", new_x="LMARGIN", new_y="NEXT", align="C")
         self.ln(2)
         self.set_draw_color(226, 232, 240)
         self.line(10, self.get_y(), 200, self.get_y())
@@ -235,8 +210,7 @@ class TaxPDF(FPDF):
         self.set_text_color(148, 163, 184)
         self.cell(0, 5, f"Page {self.page_no()}/{{nb}} · NomadTax Copilot · For organizational purposes only", align="C")
 
-def generate_pdf(categorized, total_income, total_expenses,
-                 total_deductible, net_income, notes, overrides, name="", home_currency="USD"):
+def generate_pdf(categorized, total_income, total_expenses, total_deductible, net_income, notes, overrides, name="", home_currency="USD"):
     pdf = TaxPDF(orientation="L", unit="mm", format="A4")
     pdf.alias_nb_pages()
     pdf.add_page()
@@ -253,13 +227,12 @@ def generate_pdf(categorized, total_income, total_expenses,
     pdf.set_text_color(30, 41, 59)
     pdf.cell(0, 8, f"Financial Summary (All figures in {home_currency})", new_x="LMARGIN", new_y="NEXT")
 
-    summary_rows = [
-        ("Total Gross Income",            f"{home_currency} {total_income:,.2f}",        (22, 163, 74)),
-        ("Total Expenses",                f"{home_currency} {abs(total_expenses):,.2f}", (220, 38, 38)),
-        ("Net Income",                    f"{home_currency} {net_income:,.2f}",           (37, 99, 235)),
-        ("Potential Deductions (edited)", f"{home_currency} {abs(total_deductible):,.2f}",(99, 102, 241)),
-    ]
-    for label, value, rgb in summary_rows:
+    for label, value, rgb in [
+        ("Total Gross Income", f"{home_currency} {total_income:,.2f}", (22, 163, 74)),
+        ("Total Expenses", f"{home_currency} {abs(total_expenses):,.2f}", (220, 38, 38)),
+        ("Net Income", f"{home_currency} {net_income:,.2f}", (37, 99, 235)),
+        ("Potential Deductions (edited)", f"{home_currency} {abs(total_deductible):,.2f}", (99, 102, 241)),
+    ]:
         pdf.set_font("Helvetica", "", 10)
         pdf.set_text_color(71, 85, 105)
         pdf.cell(80, 7, label)
@@ -278,48 +251,40 @@ def generate_pdf(categorized, total_income, total_expenses,
         pdf.set_font("Helvetica", "B", 12)
         pdf.set_text_color(30, 41, 59)
         pdf.cell(0, 8, "Expense Breakdown by Category", new_x="LMARGIN", new_y="NEXT")
-
         pdf.set_font("Helvetica", "B", 8)
         pdf.set_fill_color(241, 245, 249)
         pdf.set_text_color(30, 41, 59)
-        pdf.cell(100, 6, "Category",     border=1, fill=True)
-        pdf.cell(40,  6, f"Amount ({home_currency})", border=1, fill=True, align="R", new_x="LMARGIN", new_y="NEXT")
-
+        pdf.cell(100, 6, "Category", border=1, fill=True)
+        pdf.cell(40, 6, f"Amount ({home_currency})", border=1, fill=True, align="R", new_x="LMARGIN", new_y="NEXT")
         pdf.set_font("Helvetica", "", 8)
         for cat, amt in sorted(expense_cats.items(), key=lambda x: x[1], reverse=True):
             pdf.set_text_color(71, 85, 105)
             pdf.cell(100, 5, f"  {cat}", border=1)
             pdf.set_text_color(30, 41, 59)
-            pdf.cell(40,  5, f"{amt:,.2f}", border=1, align="R", new_x="LMARGIN", new_y="NEXT")
+            pdf.cell(40, 5, f"{amt:,.2f}", border=1, align="R", new_x="LMARGIN", new_y="NEXT")
         pdf.ln(5)
 
     pdf.set_font("Helvetica", "B", 12)
     pdf.set_text_color(30, 41, 59)
     pdf.cell(0, 8, "Itemized Transaction Ledger", new_x="LMARGIN", new_y="NEXT")
-
     COL = {"desc": 70, "amount": 22, "cat": 38, "ded": 14, "reasoning": 70, "notes": 50}
-
     pdf.set_font("Helvetica", "B", 7)
     pdf.set_fill_color(30, 41, 59)
     pdf.set_text_color(255, 255, 255)
-    for label, w in [("Description", COL["desc"]), ("Amount", COL["amount"]),
-                     ("Category", COL["cat"]),      ("Ded.", COL["ded"]),
-                     ("AI Reasoning", COL["reasoning"]), ("Accountant Notes", COL["notes"])]:
+    for label, w in [("Description", COL["desc"]), ("Amount", COL["amount"]), ("Category", COL["cat"]), ("Ded.", COL["ded"]), ("AI Reasoning", COL["reasoning"]), ("Accountant Notes", COL["notes"])]:
         pdf.cell(w, 6, label, border=1, fill=True, align="C")
     pdf.ln()
 
     pdf.set_font("Helvetica", "", 6.5)
     row_index = 0
-    
     for i, r in enumerate(categorized):
         if r.get("type") not in ("Expense", "Income"):
             continue
-
-        desc      = r.get("clean_description") or r.get("original_description", "")
+        desc = r.get("clean_description") or r.get("original_description", "")
         reasoning = r.get("reasoning", "")
-        note      = notes.get(i, "")
-        ded       = "Yes" if overrides.get(i, r.get("deductible", False)) else "No"
-        amount    = r.get("amount", 0)
+        note = notes.get(i, "")
+        ded = "Yes" if overrides.get(i, r.get("deductible", False)) else "No"
+        amount = r.get("amount", 0)
         amount_str = f"{amount:,.2f}" if amount >= 0 else f"({abs(amount):,.2f})"
 
         line_h = 3.5
@@ -336,11 +301,7 @@ def generate_pdf(categorized, total_income, total_expenses,
                     line = w
             return count
 
-        lines_desc = count_lines(desc, COL["desc"])
-        lines_rsn  = count_lines(reasoning, COL["reasoning"])
-        lines_note = count_lines(note, COL["notes"])
-        row_h = max(lines_desc, lines_rsn, lines_note, 1) * line_h + 2
-
+        row_h = max(count_lines(desc, COL["desc"]), count_lines(reasoning, COL["reasoning"]), count_lines(note, COL["notes"]), 1) * line_h + 2
         is_zebra = row_index % 2 == 0
         x0, y0 = pdf.get_x(), pdf.get_y()
 
@@ -349,7 +310,6 @@ def generate_pdf(categorized, total_income, total_expenses,
             x0, y0 = pdf.get_x(), pdf.get_y()
 
         pdf.set_text_color(30, 41, 59)
-
         def draw_cell(x, y, w, text, align="L"):
             pdf.set_xy(x, y)
             if is_zebra: pdf.set_fill_color(248, 250, 252)
@@ -370,7 +330,6 @@ def generate_pdf(categorized, total_income, total_expenses,
 
         draw_cell(x0 + COL["desc"] + COL["amount"] + COL["cat"] + COL["ded"], y0, COL["reasoning"], reasoning)
         draw_cell(x0 + COL["desc"] + COL["amount"] + COL["cat"] + COL["ded"] + COL["reasoning"], y0, COL["notes"], note)
-
         pdf.set_xy(x0, y0 + row_h)
         row_index += 1
 
@@ -380,24 +339,14 @@ def generate_pdf(categorized, total_income, total_expenses,
     pdf.ln(3)
     pdf.set_font("Helvetica", "I", 6.5)
     pdf.set_text_color(148, 163, 184)
-    pdf.multi_cell(0, 3.5,
-        "DISCLAIMER: This report is for organizational purposes only and does not constitute "
-        "tax, legal, or financial advice. Your data was processed in real time and is never "
-        "stored or shared. Always consult a qualified tax professional before filing.")
-
+    pdf.multi_cell(0, 3.5, "DISCLAIMER: This report is for organizational purposes only and does not constitute tax, legal, or financial advice. Your data was processed in real time and is never stored or shared. Always consult a qualified tax professional before filing.")
     return bytes(pdf.output())
-
-
-# ═════════════════════════════════════════════════════════════
+    # ═════════════════════════════════════════════════════════════
 # UI
 # ═════════════════════════════════════════════════════════════
 
 st.markdown('<p class="hero-title">🌍 NomadTax Copilot</p>', unsafe_allow_html=True)
-st.markdown(
-    '<p class="hero-sub">Turn your messy Stripe, PayPal, or Wise CSV into a clean '
-    'accountant-ready tax report — in under 60 seconds.</p>',
-    unsafe_allow_html=True
-)
+st.markdown('<p class="hero-sub">Turn your messy Stripe, PayPal, or Wise CSV into a clean accountant-ready tax report — in under 60 seconds.</p>', unsafe_allow_html=True)
 st.markdown("""
 <div style="margin:10px 0 4px;">
   <span class="pill">✅ AI-categorized transactions</span>
@@ -407,8 +356,7 @@ st.markdown("""
   <span class="pill">✅ Accountant-ready PDF</span>
 </div>
 <div class="privacy-note">
-  🔒 <strong>Your data never leaves this session.</strong>
-  Transactions are processed in real time and are never stored, logged, or shared.
+  🔒 <strong>Your data never leaves this session.</strong> Transactions are processed in real time and are never stored, logged, or shared.
 </div>
 """, unsafe_allow_html=True)
 
@@ -431,17 +379,13 @@ freelancer_name = st.text_input("Your name (optional — appears on the PDF)", p
 home_currency, tax_country, is_nomad = render_tax_profile()
 
 # ── File upload ───────────────────────────────────────────────
-uploaded_file = st.file_uploader(
-    "📂 Upload your transaction CSV",
-    type=["csv"],
-    help="Works with Stripe, PayPal, Wise, or any CSV with description + amount columns."
-)
+uploaded_file = st.file_uploader("📂 Upload your transaction CSV", type=["csv"], help="Works with Stripe, PayPal, Wise, or any CSV with description + amount columns.")
 
 with st.expander("What should the CSV look like?"):
     st.dataframe(pd.DataFrame({
         "Description": ["Client payment - Website build", "Stripe processing fee", "AWS subscription", "Transfer to bank account"],
-        "Amount":      [2500.00, -75.00, -29.99, -2425.00],
-        "Currency":    ["USD", "USD", "EUR", "USD"]
+        "Amount": [2500.00, -75.00, -29.99, -2425.00],
+        "Currency": ["USD", "USD", "EUR", "USD"]
     }), use_container_width=True, hide_index=True)
     st.caption("Column names are auto-detected — they don't need to match exactly.")
 
@@ -449,7 +393,6 @@ with st.expander("What should the CSV look like?"):
 if "categorized_data" not in st.session_state:
     st.session_state.categorized_data = None
 
-# If a NEW file is uploaded, wipe the old data so it doesn't bleed over
 if uploaded_file is not None:
     if st.session_state.get("last_uploaded_file") != uploaded_file.name:
         st.session_state.categorized_data = None
@@ -463,7 +406,7 @@ if uploaded_file and model:
         df = pd.read_csv(uploaded_file)
         df.columns = df.columns.str.strip().str.lower()
 
-        desc_col   = find_column(df.columns, ["description", "statement", "memo", "name", "narration", "details", "merchant"])
+        desc_col = find_column(df.columns, ["description", "statement", "memo", "name", "narration", "details", "merchant"])
         amount_col = find_column(df.columns, ["amount", "net", "gross", "value", "debit", "credit"])
 
         if not desc_col or not amount_col:
@@ -473,15 +416,12 @@ if uploaded_file and model:
 
         # ── Currency Detection & Conversion ───────────────
         curr_col = find_column(df.columns, ["currency", "ccy"])
-        
         if curr_col:
             unique_currencies = df[curr_col].dropna().str.upper().unique()
             st.info(f"💰 **Multi-currency detected:** {', '.join(unique_currencies)}. Converting to {home_currency}...")
-            
             df["original_amount"] = df[amount_col]
             df["original_currency"] = df[curr_col].str.upper()
-            df["amount_converted"] = df[amount_col] 
-            
+            df["amount_converted"] = df[amount_col]
             for curr in unique_currencies:
                 if curr == home_currency:
                     df.loc[df["original_currency"] == curr, "amount_converted"] = df.loc[df["original_currency"] == curr, "original_amount"]
@@ -493,7 +433,6 @@ if uploaded_file and model:
                         st.success(f"✓ {curr} → {home_currency} rate: {rate:.4f}")
                     else:
                         st.error(f"❌ Could not fetch rate for {curr}. These transactions will use raw numbers.")
-            
             final_amount_col = "amount_converted"
         else:
             st.info(f"🏠 Single currency assumed ({home_currency}).")
@@ -508,21 +447,16 @@ if uploaded_file and model:
 
         # ── State-Safe Execution Button ───────────────────
         if st.button("🔍 Analyze & Categorize", type="primary", use_container_width=True):
-            transactions = df[[desc_col, final_amount_col]].rename(
-                columns={desc_col: "description", final_amount_col: "amount"}
-            ).to_dict(orient="records")
-
+            transactions = df[[desc_col, final_amount_col]].rename(columns={desc_col: "description", final_amount_col: "amount"}).to_dict(orient="records")
             with st.spinner("Gemini AI is scanning and batching records..."):
                 st.session_state.categorized_data = categorize_transactions(model, transactions)
-                # Initialize edit trackers specifically for this new dataset
                 st.session_state.saved_notes = {}
                 st.session_state.saved_overrides = {i: r.get("deductible", False) for i, r in enumerate(st.session_state.categorized_data)}
 
         # ── Dashboard Render (Survives reruns) ────────────
         if st.session_state.categorized_data is not None:
             categorized = st.session_state.categorized_data
-
-            total_income   = sum(r.get("amount", 0) for r in categorized if r.get("type") == "Income" and r.get("amount", 0) > 0)
+            total_income = sum(r.get("amount", 0) for r in categorized if r.get("type") == "Income" and r.get("amount", 0) > 0)
             total_expenses = sum(r.get("amount", 0) for r in categorized if r.get("type") == "Expense" and r.get("amount", 0) < 0)
             total_deductible_raw = sum(r.get("amount", 0) for r in categorized if r.get("deductible") and r.get("amount", 0) < 0)
             net_income = total_income + total_expenses
@@ -530,18 +464,16 @@ if uploaded_file and model:
             st.divider()
             st.subheader("📊 Summary")
             c1, c2, c3, c4 = st.columns(4)
-            c1.metric("💰 Total Income",      f"{home_currency} {total_income:,.2f}")
-            c2.metric("💸 Total Expenses",    f"{home_currency} {abs(total_expenses):,.2f}")
-            c3.metric("📈 Net Income",         f"{home_currency} {net_income:,.2f}")
+            c1.metric("💰 Total Income", f"{home_currency} {total_income:,.2f}")
+            c2.metric("💸 Total Expenses", f"{home_currency} {abs(total_expenses):,.2f}")
+            c3.metric("📈 Net Income", f"{home_currency} {net_income:,.2f}")
             c4.metric("🧾 Flagged Deductible", f"{home_currency} {abs(total_deductible_raw):,.2f}")
 
             st.subheader("🏷️ Expense Breakdown")
             expense_cats = {}
             for r in categorized:
                 if r.get("type") == "Expense":
-                    cat = r.get("category", "Other")
-                    expense_cats[cat] = expense_cats.get(cat, 0) + abs(r.get("amount", 0))
-
+                    expense_cats[r.get("category", "Other")] = expense_cats.get(r.get("category", "Other"), 0) + abs(r.get("amount", 0))
             if expense_cats:
                 cat_df = pd.DataFrame(sorted(expense_cats.items(), key=lambda x: x[1], reverse=True), columns=["Category", f"Amount ({home_currency})"])
                 cat_df[f"Amount ({home_currency})"] = cat_df[f"Amount ({home_currency})"].map("{:,.2f}".format)
@@ -549,21 +481,18 @@ if uploaded_file and model:
 
             st.subheader("📋 Categorized Transactions")
             st.caption("Every AI decision is explained. Expand any row to see the reasoning.")
-
             for idx, r in enumerate(categorized):
                 t = r.get("type", "")
                 clean = r.get("clean_description") or r.get("original_description", "")
                 amount = r.get("amount", 0)
                 amount_str = f"{amount:,.2f}" if amount >= 0 else f"-{abs(amount):,.2f}"
-
                 if t == "Expense":
                     icon = "✅" if r.get("deductible") else "❌"
-                    label = f"{icon} **{clean}** — {amount_str} · {r.get('category', '')}"
-                    with st.expander(label):
+                    with st.expander(f"{icon} **{clean}** — {amount_str} · {r.get('category', '')}"):
                         col1, col2, col3 = st.columns(3)
-                        col1.metric("Category",   r.get("category", "Other"))
+                        col1.metric("Category", r.get("category", "Other"))
                         col2.metric("Deductible", "Yes ✅" if r.get("deductible") else "No ❌")
-                        col3.metric("Type",       t)
+                        col3.metric("Type", t)
                         st.markdown(f'<div class="reasoning-box">🤖 <strong>AI Reasoning:</strong> {r.get("reasoning", "No reasoning provided.")}</div>', unsafe_allow_html=True)
                 elif t == "Income":
                     with st.expander(f"💰 **{clean}** — {amount_str}"):
@@ -578,45 +507,30 @@ if uploaded_file and model:
             st.divider()
             st.subheader("📝 Review & Add Notes for Your Accountant")
             st.caption("Override any deductible decision and add a note — both print directly to the PDF.")
-
             for idx, r in enumerate(categorized):
                 if r.get("type") == "Expense":
                     col1, col2, col3 = st.columns([4, 1, 3])
                     clean = r.get("clean_description") or r.get("original_description", "")
                     col1.write(f"**{clean}** — {abs(r.get('amount', 0)):,.2f}")
-                    
-                    # Write directly to session state so it survives reruns
                     st.session_state.saved_overrides[idx] = col2.checkbox("Ded.", value=st.session_state.saved_overrides.get(idx, False), key=f"ov_{idx}")
                     st.session_state.saved_notes[idx] = col3.text_input("Note", value=st.session_state.saved_notes.get(idx, ""), key=f"nt_{idx}", label_visibility="collapsed", placeholder="Add accountant note…")
 
             notes = st.session_state.saved_notes
             overrides = st.session_state.saved_overrides
+            total_deductible_final = sum(abs(r.get("amount", 0)) for i, r in enumerate(categorized) if r.get("type") == "Expense" and overrides.get(i, r.get("deductible", False)))
 
-            total_deductible_final = sum(
-                abs(r.get("amount", 0)) for i, r in enumerate(categorized)
-                if r.get("type") == "Expense" and overrides.get(i, r.get("deductible", False))
-            )
-
-            st.metric(
-                "🧾 Potential Deductions (after your edits)",
-                f"{home_currency} {total_deductible_final:,.2f}",
-                delta=f"{'+' if total_deductible_final >= abs(total_deductible_raw) else ''}{home_currency} {total_deductible_final - abs(total_deductible_raw):,.2f} vs AI estimate"
-            )
+            st.metric("🧾 Potential Deductions (after your edits)", f"{home_currency} {total_deductible_final:,.2f}", delta=f"{'+' if total_deductible_final >= abs(total_deductible_raw) else ''}{home_currency} {total_deductible_final - abs(total_deductible_raw):,.2f} vs AI estimate")
 
             st.divider()
             st.subheader("⬇️ Download Your Report")
-
             col1, col2 = st.columns(2)
-
             with col1:
                 csv_out = pd.DataFrame(categorized).to_csv(index=False)
                 st.download_button("📊 Download Raw CSV", data=csv_out, file_name="nomadtax_report.csv", mime="text/csv", use_container_width=True)
-
             with col2:
                 with st.spinner("Building your PDF…"):
                     pdf_bytes = generate_pdf(categorized, total_income, total_expenses, total_deductible_final, net_income, notes, overrides, freelancer_name, home_currency)
                 st.download_button("📄 Download Accountant-Ready PDF", data=pdf_bytes, file_name="NomadTax_Accountant_Report.pdf", mime="application/pdf", use_container_width=True, type="primary")
-
             st.success("✓ Report ready. Hand the PDF directly to your accountant — no extra prep needed.")
 
     except Exception as e:
@@ -627,8 +541,6 @@ elif uploaded_file and not model:
 
 st.markdown("""
 <div class="disclaimer">
-  This tool organizes transaction data for informational purposes only.
-  It does not constitute tax, legal, or financial advice.
-  Always consult a qualified tax professional before filing.
+  This tool organizes transaction data for informational purposes only. It does not constitute tax, legal, or financial advice. Always consult a qualified tax professional before filing.
 </div>
 """, unsafe_allow_html=True)
