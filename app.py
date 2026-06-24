@@ -1,5 +1,6 @@
 import os
 import json
+import time
 import pandas as pd
 import streamlit as st
 import google.generativeai as genai
@@ -78,6 +79,7 @@ def categorize_transactions(model, transactions: list) -> list:
                 text = text.split("\n", 1)[1].rsplit("```", 1)[0]
             parsed = json.loads(text)
             results.extend(parsed)
+            time.sleep(13)
         except Exception as e:
             st.warning(f"Batch {i//batch_size + 1} failed: {e}")
 
