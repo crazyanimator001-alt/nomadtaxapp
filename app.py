@@ -77,7 +77,7 @@ For EVERY transaction, include:
 2. "clean_description"   — Human-readable version (strip IDs, merchant codes, noise)
 3. "amount"              — Same number from input (positive = inflow, negative = outflow)
 4. "type"                — One of: "Income", "Expense", "Transfer", "Refund/Rebate"
-5. "category"            — One of: "SaaS/Software", "Travel/Accommodation", "Meals/Food", "Contractors/Freelancers", "Bank Fees", "Marketing/Advertising", "Office Supplies", "Professional Services", "Other"
+5. "category"            — One of: "SaaS/Software", "Travel/Accommodation", "Meals/Food", "Contractors/Freelancers", "Bank Fees", "Marketing/Advertising", "Office Supplies", "Professional Services", "Client Payments", "Other"
 6. "deductible"          — MUST be true or false. NEVER null or omitted.
 7. "reasoning"           — 1-2 sentences explaining WHY you chose this category and deductible status.
 
@@ -169,12 +169,12 @@ def find_column(cols, keywords):
 def get_exchange_rate(from_currency, to_currency):
     if from_currency == to_currency:
         return 1.0
-    url = f"https://api.frankfurter.app/latest?from={from_currency}&to={to_currency}"
+    url = f"https://open.er-api.com/v6/latest/{from_currency}"
     try:
         req = urllib.request.Request(url)
         with urllib.request.urlopen(req, timeout=5) as response:
             data = json.loads(response.read().decode())
-            return data["rates"][to_currency]
+            return data["rates"].get(to_currency, 1.0)
     except Exception:
         return None
 
