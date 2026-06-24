@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import urllib.request
 import pandas as pd
 import streamlit as st
 import google.generativeai as genai
