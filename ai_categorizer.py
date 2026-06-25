@@ -19,7 +19,6 @@ USER_PROMPT_TEMPLATE = 'Categorize these transactions. Return a JSON object with
 
 
 def _get_gemini_client():
-    # We are reusing the get_openai_key function from config, but we will pass the Gemini key into it
     key = st.secrets.get("GEMINI_API_KEY") or st.session_state.get("user_openai_key")
     if not key:
         st.error("Google Gemini API key missing. Add it in Streamlit Secrets as GEMINI_API_KEY.")
@@ -36,7 +35,7 @@ def _call_gemini(model, prompt):
     try:
         response = model.generate_content(prompt)
         
-        # Gemini sometimes wraps JSON in markdown ```json ... ```. We need to strip that.
+        # Gemini sometimes wraps JSON in markdown. We strip it.
         text = response.text
         text = re.sub(r'^```json\s*', '', text)
         text = re.sub(r'\s*```$', '', text)
