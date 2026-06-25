@@ -24,10 +24,6 @@ tab1, tab2, tab3, tab4 = st.tabs(["1. Upload & Categorize", "2. FX & Analytics",
 # ============ TAB 1 ============
 with tab1:
     st.header("Upload Bank Statement")
-    
-    with st.expander("🔑 Enter OpenAI API Key", expanded=(st.session_state.get("user_openai_key") is None)):
-        st.session_state["user_openai_key"] = st.text_input("Paste your key starting with sk- here:", type="password", key="api_key_main")
-
     uploaded = st.file_uploader("Wise, Revolut, or any CSV with Date/Description/Amount/Currency", type=["csv"])
 
     if uploaded:
