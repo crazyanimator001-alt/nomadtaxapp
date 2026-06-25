@@ -478,12 +478,9 @@ def generate_pdf(
 
 def _render_api_key_section():
     has_key = bool(st.session_state.api_key)
-    with st.expander("🔑 Google AI API Key", expanded=not has_key):
+    with st.expander("🔑 Google AI Key", expanded=not has_key):
         if has_key:
-            st.success("API key loaded and active for this session.")
-            if st.button("Clear API key", key="clear_key"):
-                st.session_state.api_key = ""
-                st.rerun()
+            st.success("API key loaded and active ✓")
         else:
             typed = st.text_input(
                 "Paste your API key",
