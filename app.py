@@ -193,8 +193,53 @@ if not model:
             model = get_model()
             if model: st.success("API key accepted ✓")
 
-freelancer_name = st.text_input("Your name (optional — appears on the PDF)", placeholder="e.g. Rahul Sharma")
-home_currency, tax_country, is_nomad = render_tax_profile()
+# ── 183-Day Travel Tracker ──────────────────────────────
+st.subheader("✈️ Travel Day Tracker (Optional)")
+st.caption("Digital nomads often need to prove how many days they spent outside their home country. Add your trips below to generate a summary for your accountant.")
+
+if "travel_log" not in st.session_state:
+    st.session_state.travel_log = []
+
+with st.expander("➕ Add your travel periods"):
+    tc1, tc2, tc3 = st.columns(3)
+    start_date = tc1.date_input("Start Date", key="trav_start")
+    end_date = tc2.date_input("End Date", key="trav_end")
+    country = tc3.text_input("Country", placeholder="e.g., Thailand", key="trav_country")
+    
+    if st.button("Add Travel Period", key="add_travel"):
+        if start_date <= end_date and country:
+            days = (end_date - start_date).days + 1 # +1 to include both start and end days
+            st.session_state.travel_log.append({"start": start_date, "end": end_date, "country": country, "days": days})
+            st.rerun()
+        else:
+            st.error("Please ensure the end date is after the start date and you entered a country.")
+
+if st.session_state.travel_log:
+    st.markdown("**Your Travel Summary:**")
+    country_days = {}
+    for trip in st.session_state.travel_log:
+        c = trip["country"]
+        country_days[c] = country_days.get(c, 0) + trip["days"]
+    
+    for c, d in sorted(country_days.items(), key=lambda x: x[1], reverse=True):
+        st.write(f"📍 **{c}**: {d} days")
+        
+    total_days_abroad = sum(country_days.values())
+    st.metric("Total Days Abroad", f"{total_days_abroad} days")
+    
+    if total_days_abroad >= 330:
+        st.success("✅ You meet the 330-day Physical Presence Test for the US IRS Foreign Earned Income Exclusion!")
+    elif total_days_abroad >= 183:
+        st.info("ℹ️ You are over 183 days. You likely qualify as a tax resident in your host country under standard rules. Check local laws.")
+    else:
+        st.warning("⚠️ You are under 183 days. You may not qualify for foreign income exclusions yet.")
+
+    col_clear1, col_clear2 = st.columns([1, 5])
+    col_clear1.button("Clear Log", key="clear_travel")
+    if col_clear1.button("Clear Log", key="clear_travel"):
+        st.session_state.travel_log = []
+        st.rerun()
+
 
 uploaded_file = st.file_uploader("📂 Upload your transaction CSV", type=["csv"], help="Works with Stripe, PayPal, Wise CSVs.")
 with st.expander("What should the CSV look like?"):
