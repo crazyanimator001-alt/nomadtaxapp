@@ -13,7 +13,7 @@ TREASURY_URL = (
 
 
 @st.cache_data(ttl=86_400, show_spinner=False)
-def get_treasury_rate(date_str: str, from_currency: str) -> float | None:
+def get_treasury_rate(date_str, from_currency):
     if pd.isna(date_str) or from_currency == "USD":
         return 1.0
 
@@ -61,7 +61,7 @@ def apply_fx_to_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     df["Original Amount"] = pd.to_numeric(df["Original Amount"], errors="coerce").fillna(0)
 
     unique_pairs = df[["Date", "Currency"]].drop_duplicates()
-    rate_lookup: dict[tuple, float | None] = {}
+    rate_lookup = {}
 
     progress = st.progress(0.0, text="Fetching IRS-approved exchange rates...")
     for i, (_, row) in enumerate(unique_pairs.iterrows()):
