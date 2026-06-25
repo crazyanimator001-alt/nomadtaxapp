@@ -234,12 +234,9 @@ if st.session_state.travel_log:
     else:
         st.warning("⚠️ You are under 183 days. You may not qualify for foreign income exclusions yet.")
 
-    col_clear1, col_clear2 = st.columns([1, 5])
-    col_clear1.button("Clear Log", key="clear_travel")
-    if col_clear1.button("Clear Log", key="clear_travel"):
+        if st.button("Clear Log", key="clear_travel"):
         st.session_state.travel_log = []
         st.rerun()
-
 
 uploaded_file = st.file_uploader("📂 Upload your transaction CSV", type=["csv"], help="Works with Stripe, PayPal, Wise CSVs.")
 with st.expander("What should the CSV look like?"):
