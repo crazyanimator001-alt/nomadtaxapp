@@ -32,7 +32,9 @@ tab1, tab2, tab3, tab4 = st.tabs(["1. Upload & Categorize", "2. FX & Analytics",
 # ============ TAB 1 ============
 with tab1:
     st.header("Upload Bank Statement")
-        # DEMO DATA BUTTON
+    uploaded = st.file_uploader("Wise, Revolut, or any CSV with Date/Description/Amount/Currency", type=["csv"])
+    
+    # DEMO DATA BUTTON
     if st.button("🎯 Try with Demo Data (No upload needed)", type="secondary"):
         demo_data = {
             "Date": ["2024-03-01", "2024-03-05", "2024-03-10", "2024-03-15", "2024-03-20"],
@@ -43,6 +45,7 @@ with tab1:
         st.session_state.raw_df = pd.DataFrame(demo_data)
         st.success("Demo data loaded! Click 'Run AI Categorization' below.")
         st.rerun()
+
     if uploaded:
         try:
             df_raw = pd.read_csv(uploaded)
@@ -70,6 +73,7 @@ with tab1:
 
     if st.session_state.categorized_df is not None:
         st.dataframe(st.session_state.categorized_df, use_container_width=True)
+
 
 # ============ TAB 2 ============
 with tab2:
