@@ -27,21 +27,30 @@ with tab1:
     uploaded = st.file_uploader("Wise, Revolut, or any CSV with Date/Description/Amount/Currency", type=["csv"])
 
     if uploaded:
+        # File size guard (5 MB max)
         if uploaded.size > 5 * 1024 * 1024:
             st.error("File too large. Maximum size is 5 MB.")
             st.stop()
+        
         try:
             df_raw = pd.read_csv(uploaded)
+            
+            # Row count guard
             if len(df_raw) > MAX_ROWS:
                 st.error("Too many rows (" + str(len(df_raw)) + "). Max is " + str(MAX_ROWS) + ".")
                 st.stop()
+                
+            # Standardize column names
             df_raw.columns = [c.strip() for c in df_raw.columns]
             canonical = {c.lower(): c for c in ["Date", "Description", "Amount", "Currency"]}
             df_raw.rename(columns={c: canonical[c.lower()] for c in df_raw.columns if c.lower() in canonical}, inplace=True)
+            
+            # Validate required columns exist
             missing = REQUIRED_CSV_COLUMNS - set(df_raw.columns)
             if missing:
-                st.error("Missing required columns: " + str(missing))
+                st.error("Missing required columns: " + str(missing) + ". Found: " + str(list(df_raw.columns)))
                 st.stop()
+                
             st.session_state.raw_df = df_raw
         except Exception as e:
             st.error("Could not read CSV: " + str(e))
@@ -50,7 +59,7 @@ with tab1:
         st.write("Loaded **" + str(len(st.session_state.raw_df)) + "** rows.")
         st.dataframe(st.session_state.raw_df.head(10), use_container_width=True)
         
-        if st.button("🤖 Run AI Categorization", type="primary"):
+        if st.button("🤖 Run Categorization Engine", type="primary"):
             st.session_state.categorized_df = categorize_transactions(st.session_state.raw_df)
             st.session_state.fx_df = None
             st.success("Categorization complete. See Tab 2.")
