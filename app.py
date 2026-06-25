@@ -25,26 +25,20 @@ tab1, tab2, tab3, tab4 = st.tabs(["1. Upload & Categorize", "2. FX & Analytics",
 with tab1:
     st.header("Upload Bank Statement")
     
-    # API KEY INPUT (Visible on main screen)
     with st.expander("🔑 Enter OpenAI API Key", expanded=(st.session_state.get("user_openai_key") is None)):
         st.session_state["user_openai_key"] = st.text_input("Paste your key starting with sk- here:", type="password", key="api_key_main")
 
     uploaded = st.file_uploader("Wise, Revolut, or any CSV with Date/Description/Amount/Currency", type=["csv"])
-    
-    if st.button("🎯 Try with Demo Data (No upload needed)", type="secondary"):
-        demo_data = {
-            "Date": ["2024-03-01", "2024-03-05", "2024-03-10", "2024-03-15", "2024-03-20"],
-            "Description": ["Airbnb Lisbon", "Transfer to Savings", "Dojo Coworking Bali", "Chillout Bar", "AWS Hosting"],
-            "Amount": [1200.00, -500.00, 150000.00, 25.00, 29.00],
-            "Currency": ["EUR", "USD", "IDR", "THB", "USD"]
-        }
-        st.session_state.raw_df = pd.DataFrame(demo_data)
-        st.success("Demo data loaded! Click 'Run AI Categorization' below.")
-        st.rerun()
 
     if uploaded:
+        if uploaded.size > 5 * 1024 * 1024:
+            st.error("File too large. Maximum size is 5 MB.")
+            st.stop()
         try:
             df_raw = pd.read_csv(uploaded)
+            if len(df_raw) > MAX_ROWS:
+                st.error("Too many rows (" + str(len(df_raw)) + "). Max is " + str(MAX_ROWS) + ".")
+                st.stop()
             df_raw.columns = [c.strip() for c in df_raw.columns]
             canonical = {c.lower(): c for c in ["Date", "Description", "Amount", "Currency"]}
             df_raw.rename(columns={c: canonical[c.lower()] for c in df_raw.columns if c.lower() in canonical}, inplace=True)
