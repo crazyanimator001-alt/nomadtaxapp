@@ -1,51 +1,50 @@
 import json
 import logging
-import time
+import re
 import pandas as pd
 import streamlit as st
-from openai import OpenAI, OpenAIError
+import google.generativeai as genai
 from config import get_openai_key, MAX_ROWS
 
 log = logging.getLogger(__name__)
-BATCH_SIZE = 20
-MAX_RETRIES = 3
+BATCH_SIZE = 15
 
 SYSTEM_PROMPT = (
     "You are a tax accountant for US digital nomads filing Form 2555 and Form 1116. "
-    "Output strictly valid JSON. Categories MUST start with Business: or Personal:. "
+    "Output strictly valid JSON. Categories MUST start with 'Business:' or 'Personal:'. "
     "Flag foreign-earned income explicitly. Be conservative; when unsure, mark Personal."
 )
 
 USER_PROMPT_TEMPLATE = 'Categorize these transactions. Return a JSON object with key "results" containing a list of objects with: id (int), category (str), reasoning (1 sentence), is_foreign_earned_income (bool), foreign_tax_paid (bool). Transactions: {data}'
 
 
-def _get_client():
-    key = get_openai_key()
+def _get_gemini_client():
+    # We are reusing the get_openai_key function from config, but we will pass the Gemini key into it
+    key = st.secrets.get("GEMINI_API_KEY") or st.session_state.get("user_openai_key")
     if not key:
-        st.error("OpenAI API key missing. Add it in the sidebar.")
+        st.error("Google Gemini API key missing. Add it in Streamlit Secrets as GEMINI_API_KEY.")
         st.stop()
-    return OpenAI(api_key=key)
+    
+    genai.configure(api_key=key)
+    return genai.GenerativeModel(
+        model_name='gemini-1.5-flash',
+        system_instruction=SYSTEM_PROMPT
+    )
 
 
-def _call_with_retry(client, prompt):
-    for attempt in range(MAX_RETRIES):
-        try:
-            resp = client.chat.completions.create(
-                model="gpt-4o-mini",
-                response_format={"type": "json_object"},
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT}, 
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.1,
-            )
-            return json.loads(resp.choices[0].message.content)
-        except (OpenAIError, json.JSONDecodeError) as e:
-            log.warning("OpenAI attempt %d failed: %s", attempt + 1, e)
-            if attempt == MAX_RETRIES - 1:
-                raise
-            time.sleep(2 ** attempt)
-    return {}
+def _call_gemini(model, prompt):
+    try:
+        response = model.generate_content(prompt)
+        
+        # Gemini sometimes wraps JSON in markdown ```json ... ```. We need to strip that.
+        text = response.text
+        text = re.sub(r'^```json\s*', '', text)
+        text = re.sub(r'\s*```$', '', text)
+        
+        return json.loads(text)
+    except Exception as e:
+        log.warning("Gemini API failed: %s", e)
+        raise
 
 
 def categorize_transactions(df):
@@ -53,23 +52,25 @@ def categorize_transactions(df):
         st.error("CSV has " + str(len(df)) + " rows; max is " + str(MAX_ROWS) + ".")
         st.stop()
 
-    client = _get_client()
+    model = _get_gemini_client()
     all_results = {}
 
-    progress = st.progress(0.0, text="AI categorizing transactions...")
+    progress = st.progress(0.0, text="AI categorizing transactions via Google Gemini...")
     for i in range(0, len(df), BATCH_SIZE):
         batch = df.iloc[i : i + BATCH_SIZE]
         payload = [
             {"id": int(idx), "desc": str(row["Description"])[:200], "amount": float(row["Amount"])}
             for idx, row in batch.iterrows()
         ]
-        raw = _call_with_retry(client, USER_PROMPT_TEMPLATE.format(data=json.dumps(payload)))
+        raw = _call_gemini(model, USER_PROMPT_TEMPLATE.format(data=json.dumps(payload)))
+        
         items = raw.get("results") or raw.get("data") or raw.get("transactions") or []
         if not isinstance(items, list):
             items = []
         for item in items:
             if isinstance(item, dict) and "id" in item:
                 all_results[str(item["id"])] = item
+                
         progress.progress(min(1.0, (i + BATCH_SIZE) / len(df)))
     progress.empty()
 
