@@ -106,7 +106,18 @@ with tab3:
     st.info("⚠️ Standard day-count rules only. Tax treaties not modeled. Consult a CPA.")
 
     projections = []
-    projections.append(render_us_spt())
+    with tab3:
+    st.header("Multi-Jurisdiction Residency Engine")
+    st.info("⚠️ Standard day-count rules only. Tax treaties not modeled. Consult a CPA.")
+
+    projections = []
+    st.divider()
+    c1, c2 = st.columns(2)
+    with c1: projections.append(render_predictor("Spain", "🇪🇸", "es_days"))
+    with c2: projections.append(render_predictor("Portugal", "🇵🇹", "pt_days"))
+
+    st.divider()
+    render_heatmap(projections)
     st.divider()
     c1, c2 = st.columns(2)
     with c1: projections.append(render_predictor("Spain", "🇪🇸", "es_days"))
