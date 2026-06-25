@@ -1,79 +1,65 @@
-import json
-import logging
-import re
 import pandas as pd
 import streamlit as st
-import google.generativeai as genai
-from config import get_openai_key, MAX_ROWS
-
-log = logging.getLogger(__name__)
-BATCH_SIZE = 15
-
-SYSTEM_PROMPT = (
-    "You are a tax accountant for US digital nomads filing Form 2555 and Form 1116. "
-    "Output strictly valid JSON. Categories MUST start with 'Business:' or 'Personal:'. "
-    "Flag foreign-earned income explicitly. Be conservative; when unsure, mark Personal."
-)
-
-USER_PROMPT_TEMPLATE = 'Categorize these transactions. Return a JSON object with key "results" containing a list of objects with: id (int), category (str), reasoning (1 sentence), is_foreign_earned_income (bool), foreign_tax_paid (bool). Transactions: {data}'
-
-
-def _get_gemini_client():
-    key = st.secrets.get("GEMINI_API_KEY") or st.session_state.get("user_openai_key")
-    if not key:
-        st.error("Google Gemini API key missing. Add it in Streamlit Secrets as GEMINI_API_KEY.")
-        st.stop()
-    
-    genai.configure(api_key=key)
-    return genai.GenerativeModel(
-        model_name='gemini-pro',
-        system_instruction=SYSTEM_PROMPT
-    )
-
-
-def _call_gemini(model, prompt):
-    try:
-        response = model.generate_content(prompt)
-        
-        # Gemini sometimes wraps JSON in markdown. We strip it.
-        text = response.text
-        text = re.sub(r'^```json\s*', '', text)
-        text = re.sub(r'\s*```$', '', text)
-        
-        return json.loads(text)
-    except Exception as e:
-        log.warning("Gemini API failed: %s", e)
-        raise
-
+from config import MAX_ROWS
 
 def categorize_transactions(df):
+    """100% Free, instant rules-based categorization. No API keys needed."""
     if len(df) > MAX_ROWS:
         st.error("CSV has " + str(len(df)) + " rows; max is " + str(MAX_ROWS) + ".")
         st.stop()
 
-    model = _get_gemini_client()
-    all_results = {}
-
-    progress = st.progress(0.0, text="AI categorizing transactions via Google Gemini...")
-    for i in range(0, len(df), BATCH_SIZE):
-        batch = df.iloc[i : i + BATCH_SIZE]
-        payload = [
-            {"id": int(idx), "desc": str(row["Description"])[:200], "amount": float(row["Amount"])}
-            for idx, row in batch.iterrows()
-        ]
-        raw = _call_gemini(model, USER_PROMPT_TEMPLATE.format(data=json.dumps(payload)))
+    results = {}
+    progress = st.progress(0.0, text="Categorizing transactions (Instant & Free)...")
+    
+    for i, (idx, row) in enumerate(df.iterrows()):
+        desc = str(row["Description"]).lower()
+        amount = float(row["Amount"])
         
-        items = raw.get("results") or raw.get("data") or raw.get("transactions") or []
-        if not isinstance(items, list):
-            items = []
-        for item in items:
-            if isinstance(item, dict) and "id" in item:
-                all_results[str(item["id"])] = item
-                
-        progress.progress(min(1.0, (i + BATCH_SIZE) / len(df)))
-    progress.empty()
+        category = "Personal: Uncategorized"
+        reasoning = "No specific keywords matched."
+        is_foreign = False
+        
+        # --- RULES ENGINE ---
+        if any(word in desc for word in ["airbnb", "hotel", "hostel", "flight", "ryanair", "emirates", "booking.com"]):
+            category = "Business: Travel (IRC §274)"
+            reasoning = f"Matched travel keyword in '{row['Description']}'."
+            is_foreign = True
+        elif any(word in desc for word in ["aws", "github", "google cloud", "netflix", "spotify", "chatgpt", "domain", "hostinger"]):
+            category = "Business: Software & Subscriptions (IRC §162)"
+            reasoning = "Matched software/service keyword."
+            is_foreign = True
+        elif any(word in desc for word in ["coworking", "we work", "cafe", "coffee shop", "dojo"]):
+            category = "Business: Co-working / Office"
+            reasoning = "Matched workspace keyword."
+            is_foreign = True
+        elif any(word in desc for word in ["transfer", "withdrawal", "atm", "wise", "revolut"]):
+            category = "Personal: Transfer / Withdrawal"
+            reasoning = "Identified as a fund transfer or ATM withdrawal."
+        elif any(word in desc for word in ["restaurant", "bar", "pub", "mcdonalds", "starbucks", "ubereats"]):
+            category = "Personal: Dining & Food"
+            reasoning = "Identified as a food/dining expense."
+        elif any(word in desc for word in ["supermarket", "grocery", "7-eleven", "circle k", "tesco"]):
+            category = "Personal: Groceries"
+            reasoning = "Identified as a grocery store."
+            
+        # If it's a positive income amount, flag it
+        if amount > 0:
+            is_foreign = True
+            if category == "Personal: Uncategorized":
+                category = "Business: Income"
+                reasoning = "Positive amount identified as foreign income."
 
-    return _merge_results(df, all_results)
+        results[str(idx)] = {
+            "category": category,
+            "reasoning": reasoning,
+            "is_foreign_earned_income": is_foreign,
+            "foreign_tax_paid": False
+        }
+        
+        progress.progress((i + 1) / len(df))
+        
+    progress.empty()
+    return _merge_results(df, results)
 
 
 def _merge_results(df, ai_map):
@@ -86,7 +72,7 @@ def _merge_results(df, ai_map):
             "Original Amount": row.get("Amount", 0),
             "Currency": str(row.get("Currency", "USD")).upper(),
             "Category": ai.get("category", "Personal: Uncategorized"),
-            "Reasoning": ai.get("reasoning", "AI skipped this row"),
+            "Reasoning": ai.get("reasoning", "Rule engine skipped."),
             "Foreign Earned Income": bool(ai.get("is_foreign_earned_income", False)),
             "Foreign Tax Paid": bool(ai.get("foreign_tax_paid", False)),
         })
