@@ -26,7 +26,7 @@ def _get_gemini_client():
     
     genai.configure(api_key=key)
     return genai.GenerativeModel(
-        model_name='gemini-1.5-flash',
+        model_name='gemini-pro',
         system_instruction=SYSTEM_PROMPT
     )
 
