@@ -34,7 +34,6 @@ with tab1:
     st.header("Upload Bank Statement")
     uploaded = st.file_uploader("Wise, Revolut, or any CSV with Date/Description/Amount/Currency", type=["csv"])
     
-    # DEMO DATA BUTTON
     if st.button("🎯 Try with Demo Data (No upload needed)", type="secondary"):
         demo_data = {
             "Date": ["2024-03-01", "2024-03-05", "2024-03-10", "2024-03-15", "2024-03-20"],
@@ -46,26 +45,24 @@ with tab1:
         st.success("Demo data loaded! Click 'Run AI Categorization' below.")
         st.rerun()
 
-    # Process uploaded file if it exists
     if uploaded:
         try:
             df_raw = pd.read_csv(uploaded)
             df_raw.columns = [c.strip() for c in df_raw.columns]
             canonical = {c.lower(): c for c in ["Date", "Description", "Amount", "Currency"]}
             df_raw.rename(columns={c: canonical[c.lower()] for c in df_raw.columns if c.lower() in canonical}, inplace=True)
-
             missing = REQUIRED_CSV_COLUMNS - set(df_raw.columns)
             if missing:
                 st.error("Missing required columns: " + str(missing))
                 st.stop()
-                
             st.session_state.raw_df = df_raw
+        except Exception as e:
+            st.error("Could not read CSV: " + str(e))
 
-    # Show data preview if it exists (from upload OR demo button)
     if st.session_state.raw_df is not None:
         st.write("Loaded **" + str(len(st.session_state.raw_df)) + "** rows.")
         st.dataframe(st.session_state.raw_df.head(10), use_container_width=True)
-
+        
         if st.button("🤖 Run AI Categorization", type="primary"):
             st.session_state.categorized_df = categorize_transactions(st.session_state.raw_df)
             st.session_state.fx_df = None
@@ -73,7 +70,6 @@ with tab1:
 
     if st.session_state.categorized_df is not None:
         st.dataframe(st.session_state.categorized_df, use_container_width=True)
-
 
 # ============ TAB 2 ============
 with tab2:
