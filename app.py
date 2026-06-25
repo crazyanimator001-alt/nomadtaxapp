@@ -16,10 +16,10 @@ st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 for k, v in {"raw_df": None, "categorized_df": None, "fx_df": None}.items():
     st.session_state.setdefault(k, v)
 
+# THIS IS THE SIDEBAR
 with st.sidebar:
-    st.markdown("### Setup")
-    if "OPENAI_API_KEY" not in st.secrets:
-        st.session_state["user_openai_key"] = st.text_input("OpenAI API Key", type="password", help="Stored only in this session.")
+    st.markdown("### App Setup")
+    st.session_state["user_openai_key"] = st.text_input("OpenAI API Key", type="password", help="Paste your key starting with sk- here.")
     st.markdown("---")
     st.caption("Row limit: " + str(MAX_ROWS))
     st.caption("FX source: US Treasury")
