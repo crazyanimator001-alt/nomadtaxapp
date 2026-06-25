@@ -46,28 +46,28 @@ with tab1:
         st.success("Demo data loaded! Click 'Run AI Categorization' below.")
         st.rerun()
 
+    # Process uploaded file if it exists
     if uploaded:
         try:
             df_raw = pd.read_csv(uploaded)
-        except Exception as e:
-            st.error("Could not read CSV: " + str(e))
-            st.stop()
+            df_raw.columns = [c.strip() for c in df_raw.columns]
+            canonical = {c.lower(): c for c in ["Date", "Description", "Amount", "Currency"]}
+            df_raw.rename(columns={c: canonical[c.lower()] for c in df_raw.columns if c.lower() in canonical}, inplace=True)
 
-        df_raw.columns = [c.strip() for c in df_raw.columns]
-        canonical = {c.lower(): c for c in ["Date", "Description", "Amount", "Currency"]}
-        df_raw.rename(columns={c: canonical[c.lower()] for c in df_raw.columns if c.lower() in canonical}, inplace=True)
+            missing = REQUIRED_CSV_COLUMNS - set(df_raw.columns)
+            if missing:
+                st.error("Missing required columns: " + str(missing))
+                st.stop()
+                
+            st.session_state.raw_df = df_raw
 
-        missing = REQUIRED_CSV_COLUMNS - set(df_raw.columns)
-        if missing:
-            st.error("Missing required columns: " + str(missing) + ". Found: " + str(list(df_raw.columns)))
-            st.stop()
-
-        st.session_state.raw_df = df_raw
-        st.write("Loaded **" + str(len(df_raw)) + "** rows.")
-        st.dataframe(df_raw.head(10), use_container_width=True)
+    # Show data preview if it exists (from upload OR demo button)
+    if st.session_state.raw_df is not None:
+        st.write("Loaded **" + str(len(st.session_state.raw_df)) + "** rows.")
+        st.dataframe(st.session_state.raw_df.head(10), use_container_width=True)
 
         if st.button("🤖 Run AI Categorization", type="primary"):
-            st.session_state.categorized_df = categorize_transactions(df_raw)
+            st.session_state.categorized_df = categorize_transactions(st.session_state.raw_df)
             st.session_state.fx_df = None
             st.success("Categorization complete. See Tab 2.")
 
