@@ -1,4 +1,4 @@
-"""NomadTax OS — main Streamlit app."""
+"""NomadTax OS - main Streamlit app."""
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -21,7 +21,7 @@ with st.sidebar:
     if "OPENAI_API_KEY" not in st.secrets:
         st.session_state["user_openai_key"] = st.text_input("OpenAI API Key", type="password", help="Stored only in this session.")
     st.markdown("---")
-    st.caption(f"Row limit: {MAX_ROWS}")
+    st.caption("Row limit: " + str(MAX_ROWS))
     st.caption("FX source: US Treasury")
 
 st.title("✈️ NomadTax OS")
@@ -37,18 +37,20 @@ with tab1:
         try:
             df_raw = pd.read_csv(uploaded)
         except Exception as e:
-            st.error(f"Could not read CSV: {e}"); st.stop()
+            st.error("Could not read CSV: " + str(e))
+            st.stop()
 
         df_raw.columns = [c.strip() for c in df_raw.columns]
-        canonical = {c.lower(): c for c in ["Date","Description","Amount","Currency"]}
+        canonical = {c.lower(): c for c in ["Date", "Description", "Amount", "Currency"]}
         df_raw.rename(columns={c: canonical[c.lower()] for c in df_raw.columns if c.lower() in canonical}, inplace=True)
 
         missing = REQUIRED_CSV_COLUMNS - set(df_raw.columns)
         if missing:
-            st.error(f"Missing required columns: {missing}. Found: {list(df_raw.columns)}"); st.stop()
+            st.error("Missing required columns: " + str(missing) + ". Found: " + str(list(df_raw.columns)))
+            st.stop()
 
         st.session_state.raw_df = df_raw
-        st.write(f"Loaded **{len(df_raw)}** rows.")
+        st.write("Loaded **" + str(len(df_raw)) + "** rows.")
         st.dataframe(df_raw.head(10), use_container_width=True)
 
         if st.button("🤖 Run AI Categorization", type="primary"):
@@ -78,24 +80,24 @@ with tab2:
 
             total_biz = float(df[df["Category"].str.contains("Business", na=False)]["USD Amount"].fillna(0).sum())
             c1, c2, c3 = st.columns(3)
-            c1.metric("Deductions Found", f"${total_biz:,.0f}")
-            c2.metric("Form 2555 Eligible", f"${feie['eligible_income']:,.0f}")
-            c3.metric("Form 1116 FTC", f"${ftc['foreign_tax_paid']:,.0f}")
+            c1.metric("Deductions Found", "$" + f"{total_biz:,.0f}")
+            c2.metric("Form 2555 Eligible", "$" + f"{feie['eligible_income']:,.0f}")
+            c3.metric("Form 1116 FTC", "$" + f"{ftc['foreign_tax_paid']:,.0f}")
 
             st.divider()
             col_a, col_b = st.columns(2)
             with col_a:
                 df["Type"] = df["Category"].str.split(":", n=1).str[0]
                 tot = df.groupby("Type")["USD Amount"].sum().reset_index()
-                fig = px.pie(tot, values="USD Amount", names="Type", hole=0.6, color_discrete_map={"Business":"#10b981","Personal":"#94a3b8"})
+                fig = px.pie(tot, values="USD Amount", names="Type", hole=0.6, color_discrete_map={"Business": "#10b981", "Personal": "#94a3b8"})
                 st.plotly_chart(fig, use_container_width=True)
             with col_b:
-                biz = df[df["Type"]=="Business"].groupby("Category")["USD Amount"].sum().sort_values(ascending=False).head(5).reset_index()
+                biz = df[df["Type"] == "Business"].groupby("Category")["USD Amount"].sum().sort_values(ascending=False).head(5).reset_index()
                 fig = px.bar(biz, x="USD Amount", y="Category", orientation="h", color_discrete_sequence=["#6366f1"])
                 st.plotly_chart(fig, use_container_width=True)
 
             st.subheader("Audit Trail")
-            st.dataframe(df[["Date","Description","Original Amount","Currency","FX Rate","USD Amount","Category"]], use_container_width=True)
+            st.dataframe(df[["Date", "Description", "Original Amount", "Currency", "FX Rate", "USD Amount", "Category"]], use_container_width=True)
 
             pdf_bytes = generate_report(df, feie, ftc)
             st.download_button("📄 Download Audit-Ready PDF", data=pdf_bytes, file_name="NomadTax_Report.pdf", mime="application/pdf", type="primary")
@@ -105,23 +107,15 @@ with tab3:
     st.header("Multi-Jurisdiction Residency Engine")
     st.info("⚠️ Standard day-count rules only. Tax treaties not modeled. Consult a CPA.")
 
+    render_us_spt()
+    st.divider()
+    
     projections = []
-    with tab3:
-    st.header("Multi-Jurisdiction Residency Engine")
-    st.info("⚠️ Standard day-count rules only. Tax treaties not modeled. Consult a CPA.")
-
-    projections = []
-    st.divider()
     c1, c2 = st.columns(2)
-    with c1: projections.append(render_predictor("Spain", "🇪🇸", "es_days"))
-    with c2: projections.append(render_predictor("Portugal", "🇵🇹", "pt_days"))
-
-    st.divider()
-    render_heatmap(projections)
-    st.divider()
-    c1, c2 = st.columns(2)
-    with c1: projections.append(render_predictor("Spain", "🇪🇸", "es_days"))
-    with c2: projections.append(render_predictor("Portugal", "🇵🇹", "pt_days"))
+    with c1:
+        projections.append(render_predictor("Spain", "🇪🇸", "es_days"))
+    with c2:
+        projections.append(render_predictor("Portugal", "🇵🇹", "pt_days"))
 
     st.divider()
     render_heatmap(projections)
@@ -129,23 +123,25 @@ with tab3:
 # ============ TAB 4 ============
 with tab4:
     st.header("US Expat Tax Wizard")
-    if not st.checkbox("I understand this is informational only, not legal advice."): st.stop()
+    if not st.checkbox("I understand this is informational only, not legal advice."):
+        st.stop()
 
-    if st.radio("US Citizen / Green Card Holder?", ["Yes","No"]) == "No":
-        st.info("FEIE/FTC do not apply. Consult a CPA for your home-country obligations."); st.stop()
+    if st.radio("US Citizen / Green Card Holder?", ["Yes", "No"]) == "No":
+        st.info("FEIE/FTC do not apply. Consult a CPA for your home-country obligations.")
+        st.stop()
 
     default_foreign = 0.0
     feie_data = {"eligible_income": 0, "exclusion": 0, "row_count": 0, "feie_limit": 126500}
     ftc_data = {"foreign_tax_paid": 0, "credit_available": 0, "row_count": 0}
-    
+
     if st.session_state.fx_df is not None:
         feie_data = calculate_form_2555(st.session_state.fx_df)
         ftc_data = calculate_form_1116(st.session_state.fx_df)
         default_foreign = feie_data["eligible_income"]
-        st.success(f"✅ Pre-filled from your CSV: ${default_foreign:,.0f} foreign income detected.")
+        st.success("✅ Pre-filled from your CSV: $" + f"{default_foreign:,.0f}" + " foreign income detected.")
 
     foreign_income = st.number_input("Total foreign-earned income (USD)", min_value=0.0, value=float(default_foreign), step=1000.0)
-    has_fbar = st.radio(">$10,000 in foreign accounts at any time?", ["Yes","No"], index=1)
+    has_fbar = st.radio(">$10,000 in foreign accounts at any time?", ["Yes", "No"], index=1)
 
     if st.button("Calculate Impact", type="primary"):
         st.divider()
@@ -159,14 +155,14 @@ with tab4:
         st.divider()
 
         c1, c2 = st.columns(2)
-        c1.metric("FEIE Exclusion Cap", f"${manual_feie['exclusion']:,.0f}")
-        c2.metric("FTC Available", f"${ftc_data['credit_available']:,.0f}")
+        c1.metric("FEIE Exclusion Cap", "$" + f"{manual_feie['exclusion']:,.0f}")
+        c2.metric("FTC Available", "$" + f"{ftc_data['credit_available']:,.0f}")
 
         st.subheader("Required Forms")
         st.checkbox("Form 1040 (Base Return)", value=True, disabled=True)
         if manual_feie["exclusion"] > 0:
-            st.checkbox(f"Form 2555 — claim ${manual_feie['exclusion']:,.0f} exclusion", value=True, disabled=True)
+            st.checkbox("Form 2555 — claim $" + f"{manual_feie['exclusion']:,.0f}" + " exclusion", value=True, disabled=True)
         if ftc_data["credit_available"] > 0:
-            st.checkbox(f"Form 1116 — claim ${ftc_data['credit_available']:,.0f} credit", value=True, disabled=True)
+            st.checkbox("Form 1116 — claim $" + f"{ftc_data['credit_available']:,.0f}" + " credit", value=True, disabled=True)
         if has_fbar == "Yes":
             st.checkbox("FBAR (FinCEN 114) — DUE APRIL 15", value=True, disabled=True)
