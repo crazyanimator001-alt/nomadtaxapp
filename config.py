@@ -26,7 +26,7 @@ h1, h2, h3 {color: #0f172a; font-family: -apple-system, sans-serif;}
 """
 
 
-def get_openai_key() -> str | None:
+def get_openai_key() 
     """Prefer st.secrets, fall back to user-supplied UI key."""
     try:
         return st.secrets["OPENAI_API_KEY"]
