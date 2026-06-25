@@ -12,7 +12,7 @@ MAX_ROWS = 1000
 
 CUSTOM_CSS = """
 <style>
-#MainMenu, footer, header {visibility: hidden;}
+ footer, header {visibility: hidden;}
 .block-container {padding-top: 2rem; max-width: 1200px;}
 h1, h2, h3 {color: #0f172a; font-family: -apple-system, sans-serif;}
 .stButton>button {
