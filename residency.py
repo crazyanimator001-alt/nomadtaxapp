@@ -64,7 +64,7 @@ def render_us_spt() -> dict:
     return result
 
 
-def render_heatmap(projections: list[dict]) -> None:
+def render_heatmap(projections):
     months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
     today = datetime.date.today()
     z, countries = [], []
