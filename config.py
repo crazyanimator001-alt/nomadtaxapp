@@ -1,14 +1,14 @@
 """Global config: constants, CSS, secrets."""
 import streamlit as st
 
-# 2024 IRS limits — update annually
-FEIE_LIMIT_2024 = 126_500
-FBAR_THRESHOLD = 10_000
+# 2024 IRS limits
+FEIE_LIMIT_2024 = 126500
+FBAR_THRESHOLD = 10000
 SUBSTANTIAL_PRESENCE_THRESHOLD = 183
 RESIDENCY_DAY_THRESHOLD = 183
 
 REQUIRED_CSV_COLUMNS = {"Date", "Description", "Amount", "Currency"}
-MAX_ROWS = 1_000  # Cost guardrail for AI calls
+MAX_ROWS = 1000
 
 CUSTOM_CSS = """
 <style>
@@ -26,7 +26,7 @@ h1, h2, h3 {color: #0f172a; font-family: -apple-system, sans-serif;}
 """
 
 
-def get_openai_key() 
+def get_openai_key():
     """Prefer st.secrets, fall back to user-supplied UI key."""
     try:
         return st.secrets["OPENAI_API_KEY"]
