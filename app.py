@@ -40,10 +40,27 @@ with tab1:
                 st.error("Too many rows (" + str(len(df_raw)) + "). Max is " + str(MAX_ROWS) + ".")
                 st.stop()
                 
-            # Standardize column names
+                        # Standardize column names
             df_raw.columns = [c.strip() for c in df_raw.columns]
-            canonical = {c.lower(): c for c in ["Date", "Description", "Amount", "Currency"]}
-            df_raw.rename(columns={c: canonical[c.lower()] for c in df_raw.columns if c.lower() in canonical}, inplace=True)
+            
+            # SMART MAPPER: Handle Wise/Revolut formats automatically
+            column_map = {
+                # Target : [List of common bank variations]
+                "Date": ["transaction date", "date", "completed date", "booking date"],
+                "Description": ["description", "reference", "merchant", "memo", "details"],
+                "Amount": ["amount", "base amount", "original amount", "transaction amount"],
+                "Currency": ["currency", "billing currency", "original currency"]
+            }
+            
+            for target, variations in column_map.items():
+                if target not in df_raw.columns:
+                    for var in variations:
+                        if var in df_raw.columns:
+                            df_raw.rename(columns={var: target}, inplace=True)
+                            break
+            
+            
+            
             
             # Validate required columns exist
             missing = REQUIRED_CSV_COLUMNS - set(df_raw.columns)
