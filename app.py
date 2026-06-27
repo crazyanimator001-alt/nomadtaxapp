@@ -81,8 +81,32 @@ with tab1:
             st.session_state.fx_df = None
             st.success("Categorization complete. See Tab 2.")
 
-    if st.session_state.categorized_df is not None:
-        st.dataframe(st.session_state.categorized_df, use_container_width=True)
+        if st.session_state.categorized_df is not None:
+        st.subheader("Review & Fix Categories (Click the category to change it)")
+        # This creates editable dropdowns for the user
+        edited_df = st.data_editor(
+            st.session_state.categorized_df, 
+            use_container_width=True,
+            column_config={
+                "Category": st.column_config.SelectboxColumn(
+                    options=[
+                        "Business: Travel (IRC §274)",
+                        "Business: Co-working / Office",
+                        "Business: Software & Subscriptions (IRC §162)",
+                        "Business: Income",
+                        "Personal: Dining & Food",
+                        "Personal: Groceries",
+                        "Personal: Transfer / Withdrawal",
+                        "Personal: Uncategorized"
+                    ],
+                    required=True,
+                )
+            },
+            hide_columns=["Reasoning", "Foreign Earned Income", "Foreign Tax Paid"]
+        )
+        # Save the user's manual fixes back to session state
+        st.session_state.categorized_df = edited_df
+        
 
 # ============ TAB 2 ============
 with tab2:
