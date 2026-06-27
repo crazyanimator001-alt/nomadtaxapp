@@ -1,4 +1,4 @@
-"""Bulletproof FX Engine: US Treasury (Primary) with Open-ER Fallback."""
+"""Bulletproof FX Engine: US Treasury with Exchangerate-API Fallback."""
 import pandas as pd
 import requests
 import streamlit as st
@@ -10,21 +10,16 @@ TREASURY_URL = "https://api.fiscaldata.treasury.gov/services/api/fiscal_service/
 
 @st.cache_data(ttl=86_400, show_spinner=False)
 def _get_treasury_rate(date_str, currency):
-    if pd.isna(date_str) or currency == "USD":
-        return 1.0
+    if pd.isna(date_str) or currency == "USD": return 1.0
     try:
         dt = pd.to_datetime(date_str).date()
-        mapping = {
-            "EUR": "Euro Zone-Euro", "GBP": "United Kingdom-Pound", 
-            "JPY": "Japan-Yen", "THB": "Thailand-Baht"
-        }
+        mapping = {"EUR": "Euro Zone-Euro", "GBP": "United Kingdom-Pound", "JPY": "Japan-Yen", "THB": "Thailand-Baht"}
         treasury_name = mapping.get(currency.upper(), f"Unknown-{currency}")
         
         params = {
             "fields": "exchange_rate,record_date",
             "filter": f"record_date:lte:{dt.isoformat()},country_currency_desc:like:{treasury_name}",
-            "sort": "-record_date",
-            "page[size]": "1",
+            "sort": "-record_date", "page[size]": "1",
         }
         r = requests.get(TREASURY_URL, params=params, timeout=5)
         if r.status_code == 200:
@@ -32,24 +27,22 @@ def _get_treasury_rate(date_str, currency):
             if data:
                 rate = float(data[0]["exchange_rate"])
                 return 1.0 / rate if rate else None
-    except Exception:
-        pass
+    except Exception: pass
     return None
 
-@st.cache_data(ttl=86_400, show_spinner=False)
+# NO CACHE on fallback so it always tries fresh if Treasury fails
 def _get_fallback_rate(date_str, currency):
-    if currency == "USD":
-        return 1.0
+    if currency == "USD": return 1.0
     try:
         dt = pd.to_datetime(date_str).date().isoformat()
-        url = f"https://open.er-api.com/v6/historical/{dt}?base=USD&symbols={currency}"
+        # Using the updated official v6 endpoint
+        url = f"https://v6.exchangerate-api.com/v6/historical/{dt}?base=USD&symbols={currency}"
         r = requests.get(url, timeout=5)
         if r.status_code == 200:
             data = r.json()
             if data.get("result") == "success" and "rates" in data:
                 return data["rates"].get(currency)
-    except Exception:
-        pass
+    except Exception: pass
     return None
 
 def apply_fx_to_dataframe(df):
@@ -59,11 +52,11 @@ def apply_fx_to_dataframe(df):
     unique_pairs = df[["Date", "Currency"]].drop_duplicates()
     rate_lookup = {}
 
-    progress = st.progress(0.0, text="Fetching historical FX rates (Treasury + Fallback)...")
+    progress = st.progress(0.0, text="Fetching historical FX rates...")
     for i, (_, row) in enumerate(unique_pairs.iterrows()):
         key = (str(row["Date"]), str(row["Currency"]))
         
-        # Try Treasury first for IRS compliance
+        # Try Treasury first
         rate = _get_treasury_rate(row["Date"], row["Currency"])
         
         # If Treasury fails, use Fallback API
